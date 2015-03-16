@@ -52,14 +52,13 @@ class BuoyHeaderElement(object):
         self.value, self.type = line.split()
 
 class BuoyDataElement(object):
-    def __init__(self, line, header_dict):
+    def __init__(self, line, headers):
         """
         The BuoyDataElement. The data from the <buoy_short_name>.dat file will be read
-        in to this element. The header_dict must be an indexed dict of BuoyHeaderElements
-        that describes what is being read from the line, i.e. what is read from the
-        <buoy_short_name>.dat_head.dat file.
+        in to this element. The headers must be a list of BuoyHeaderElements that describes
+        what is being read from the line, i.e. what is read from the <buoy_short_name>.dat_head.dat file.
         """
-        self.header_dict = header_dict
+        self.headers = headers
 
         LOG.debug(line.strip())
         line_parts = line.split()
@@ -67,12 +66,9 @@ class BuoyDataElement(object):
         # Prepare the header types. These are the ones from the
         # <buoy_short_name>.dat_head.dat file. Each distinct type
         # becomes a new dict in the self.__dict__.
-        disctinct_header_types = {x.type for x in self.header_dict.values()}
-        for header_type in disctinct_header_types:
+        for header_type in {header.type for header in self.headers}: # Distinct header type.
             self.__dict__[header_type] = {}
-        LOG.debug("Dict after header_dict types: %s"%(self.__dict__))
-
-        # TODO: Move this out and read / filter the lines in separate method, from here.
+        LOG.debug("Dict after headers prepeared: %s"%(self.__dict__))
 
         # The first element in every line is the date.
         self.date = datetime.datetime.strptime(line_parts[0], DEFAULT_DATE_FORMAT)
@@ -83,37 +79,39 @@ class BuoyDataElement(object):
         # Using a regular expression to separate them. Remembering the possibility of negative
         # numbers, "-*".
         i = 0
-        while i < len(header_dict):
+        for line_part in line_parts:
             # Extracting valus from a string of floats with the "fortran format" "F8.3".
             # The values end up in a list [val1, val2, ...].
-            values = [float(x) for x in re.findall("-*\d{1,4}\.\d{3}", line_parts[i])]
+            values = [float(x) for x in re.findall("-*\d{1,4}\.\d{3}", line_part)]
             for value in values:
-                self.__dict__[header_dict[i].type][header_dict[i].value] = value
+                self.__dict__[self.headers[i].type][self.headers[i].value] = value
                 i += 1
 
-        if i != len(header_dict):
-            raise BuoyException("The number of values in the data line, %i, does not match the number of header elements, %i."%(i, len(header_dict)))
+        if i != len(self.headers):
+            raise BuoyException("The number of values in the data line, %i, does not match the number of header elements, %i."%(i, len(self.header)))
 
     def filter(self, order=None):
         """
-        
+        A filter is applied to the data when printing it.
+
+        The order filter must correspond to the data in the dat_header.dat file.
+        It must be a list of key/values, e.g.: [WT:3, WT:6]
         """
         LOG.debug("Order: '%s'."%(order))
-        # import sys; sys.exit() # Debug.
-
         string_elements = []
         if order != None:
-            for t, v in [x.split(":") for x in order]:
-                LOG.debug("%s %s"%(t, v))
-                if t == "date":
+            # The order must be a list. Se __doc__ above.
+            assert(isinstance(order, list))
+            for header_type, header_value in [x.split(":") for x in order]:
+                LOG.debug("%s %s"%(header_type, header_value))
+                if header_type == "date":
                     string_elements.append("%s"%self.date.strftime(DEFAULT_DATE_FORMAT))
                 else:
-                    string_elements.append("%s"%self.__dict__[t][v])
+                    string_elements.append("%s"%self.__dict__[header_type][header_value])
         else:
-            # No filter
+            # No filter. Everything is printed.
             string_elements.append(self.date.strftime(DEFAULT_DATE_FORMAT))
-            for i in range(len(self.header_dict)):
-                header = self.header_dict[i]
+            for header in self.headers:
                 string_elements.append("%s"%self.__dict__[header.type][header.value])
         return " ".join(string_elements)
 
@@ -122,7 +120,7 @@ class BuoyDataElement(object):
 
 
 class Buoy:
-    def __init__(self, short_buoy_name, data_dir=None):
+    def __init__(self, short_buoy_name, data_dir=None, data_file=None, data_header_file=None):
         """
         Initiates the buoy.
 
@@ -134,48 +132,73 @@ class Buoy:
         They must both exist in the data_dir, which can be specified. If not,
         the "data" directory is used.
 
-        The header types are read (from the header file) into an indexed header dict.
-        self.header[0] = first_header_element
-        self.header[1] = second_header_element
-        etc.
+        The header types are read (from the header file) into a list of BuoyHeaderElements.
         """
         LOG.debug("Buoy short name (used to find data and header files): '%s'."%(short_buoy_name))
 
         buoys = get_buoy_names(data_dir)
         if short_buoy_name not in buoys:
-            raise BuoyException("The input name of the buoy, %s, must be one of %s. Or the data file is missing?"%( \
-                    short_buoy_name, ",".join(buoys)))
+            raise BuoyException("The input name of the buoy, %s, must be one of '%s'. Or the data file is missing?"%( \
+                    short_buoy_name, "', '".join(buoys)))
 
         if data_dir == None:
             data_dir = DEFAULT_DATA_DIR
 
-        self.data_file = os.path.join(data_dir, "%s.dat"%(short_buoy_name))
-        self.data_header_file = os.path.join(data_dir, "%s.dat_head.dat"%(short_buoy_name))
+        # Specify the data file, or use the default.
+        if data_file == None:
+            self.data_file = os.path.join(data_dir, "%s.dat"%(short_buoy_name))
+        else:
+            self.data_file = data_file
 
+        # Specify data header file, or use the default for that name.
+        if data_header_file == None:
+            self.data_header_file = os.path.join(data_dir, "%s.dat_head.dat"%(short_buoy_name))
+        else:
+            self.data_header_file = data_header_file
+
+        # Make sure the files exist.
         assert(os.path.isfile(self.data_file))
         assert(os.path.isfile(self.data_header_file))
 
         LOG.debug("Building header.")
-        self.header = {}
+        self.headers = []
         with open(self.data_header_file) as fp:
             # The first name is the name of the buoy.
             self.name = fp.readline().strip()
             LOG.info(self.name)
-
-            i = 0
             for line in fp:
                 LOG.debug(line)
                 if len(line.split()) == 2:
-                    self.header[i] = BuoyHeaderElement(line)
-                    i += 1
+                    self.headers.append(BuoyHeaderElement(line))
 
-        LOG.debug("Number of header elements: %i"%len(self.header))
+        LOG.debug("Number of header elements: %i"%len(self.headers))
+
+    def get_header_strings(self):
+        header_strings = ["%s:%s"%(header.type, header.value) for header in self.headers]
+        # The first element is allways a string.
+        header_strings.insert(0, "date:")
+        return header_strings
 
     def data(self, date_from_including=None, date_to_excluding=None):
+        """
+        Getting the data for the specific buoy (self).
+        A generator is created, yielding each line of the data. The data line
+        is turned into a buoy object, which is what is being returned.
+
+        If the data is outside the dates specified, it just moves on to the next line in the
+        data file. It is possible to only specifiy date_from_including, or only
+        date_to_excluding.
+
+        Excluding is chosen to be able to do from the 1st in a month, to the 1st in another month,
+        without knowing the number of days in the month.
+        """
         with open(self.data_file) as fp:
             for line in fp:
-                b = BuoyDataElement(line, self.header)
+                # Read in the data from the line.
+                b = BuoyDataElement(line, self.headers)
 
+                # No need to continue if the data date is outside interval.
+                #
                 # Make sure the data date is larger than (or equal to) date from.
                 if date_from_including != None and date_from_including >= b.date:
                     continue
@@ -184,23 +207,5 @@ class Buoy:
                 if date_to_excluding != None and date_to_excluding < b.date:
                     continue
 
-                # Return the data.
+                # Return the buoy object.
                 yield b
-
-
-"""
-arko.dat                arko.dat_head.dat
-arko.datneu.dat         arko.datneu_head.dat
-dars.dat                dars.dat_head.dat
-dars.datneu.dat         dars.datneu_head.dat
-dbucht.dat              dbucht.dat_head.dat
-ems.dat                 ems.dat_head.dat
-fehm.dat                fehm.dat_head.dat
-fino1.dat               fino1.dat_head.dat
-info.txt                info.txt~  
-kiel.dat                kiel.dat_head.dat
-nsb.dat                 nsb.dat_head.dat
-nsb3.dat                nsb3.dat_head.dat
-oder.dat                oder.dat_head.dat
-readme.txt
-"""
