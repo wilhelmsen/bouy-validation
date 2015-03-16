@@ -32,7 +32,6 @@ if __name__ == "__main__":
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--print-buoy-names', action='store_true', help='Prints the name of the available buoys for a given data dir.')
-    # group.add_argument('--all', action='store_true', help="Process all buoys.")
     group.add_argument('-b', '--buoy', type=str, help="Specify the name of the buoy.")
 
     parser.add_argument('--print-header', action='store_true', help='Prints the name of the available buoys for a given data dir.')
@@ -43,12 +42,14 @@ if __name__ == "__main__":
 
     parser.add_argument('--log-filename', type=str, help="File used to output logging information.")
 
-    parser.add_argument('--filter', action="append", nargs="*")
+    parser.add_argument('--filter', action="append", nargs="*", help="Only return a string with some of the values. Based on the header file. --print-header to see the available filter options.")
     parser.add_argument('--date-from', type=date, help='Only print data values from (including) this date.')
     parser.add_argument('--date-to', type=date, help='Only print data untill (exclusive) this date.')
 
+    # Do the parser.
     args = parser.parse_args()
 
+    # Set the log options.
     if args.debug:
         logging.basicConfig( filename=args.log_filename, level=logging.DEBUG )
     elif args.verbose:

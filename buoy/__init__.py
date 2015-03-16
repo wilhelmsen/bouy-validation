@@ -39,6 +39,12 @@ def buoy_factory(name):
     """
     return Buoy(name)
 
+def get_header_filename(buoy_short_name):
+    if "neu" in buoy_short_name:
+        return "%s_head.dat"%(buoy_short_name) # dars.datneu_head.dat
+    return "%s.dat_head.dat"%(buoy_short_name)
+
+
 class BuoyHeaderElement(object):
     def __init__(self, line):
         """
@@ -152,7 +158,7 @@ class Buoy:
 
         # Specify data header file, or use the default for that name.
         if data_header_file == None:
-            self.data_header_file = os.path.join(data_dir, "%s.dat_head.dat"%(short_buoy_name))
+            self.data_header_file = os.path.join(data_dir, get_header_filename(short_buoy_name))
         else:
             self.data_header_file = data_header_file
 
