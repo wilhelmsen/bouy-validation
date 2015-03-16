@@ -12,10 +12,10 @@ DEFAULT_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dat
 DEFAULT_DATE_FORMAT = "%Y%m%d%H%M"
 DEFAULT_MISSING_VALUE = -99.0
 
-class BouyException(Exception):
+class BuoyException(Exception):
     pass
 
-def get_bouy_names(data_dir=None):
+def get_buoy_names(data_dir=None):
     if data_dir==None:
         # One back and into "data".
         data_dir = DEFAULT_DATA_DIR
@@ -31,33 +31,33 @@ def get_bouy_names(data_dir=None):
                     and "head" not in filename.lower()}
 
     LOG.error("Missing data dir: '%s'"%(data_dir))
-    raise BouyException("Missing data dir: '%s'"%(data_dir))
+    raise BuoyException("Missing data dir: '%s'"%(data_dir))
 
-def bouy_factory(name):
+def buoy_factory(name):
     """
-    Creates a bouy object from a string.
+    Creates a buoy object from a string.
     """
-    return Bouy(name)
+    return Buoy(name)
 
-class BouyHeaderElement(object):
+class BuoyHeaderElement(object):
     def __init__(self, line):
         """
         The header element.
         It simply contains a value and a type.
 
-        It is inserted into a indexed dict in the bouy object to
+        It is inserted into a indexed dict in the buoy object to
         control what is what in the data file.
         """
         LOG.debug("Header file line: '%s'"%(line))
         self.value, self.type = line.split()
 
-class BouyDataElement(object):
+class BuoyDataElement(object):
     def __init__(self, line, header_dict):
         """
-        The BouyDataElement. The data from the <bouy_short_name>.dat file will be read
-        in to this element. The header_dict must be an indexed dict of BouyHeaderElements
+        The BuoyDataElement. The data from the <buoy_short_name>.dat file will be read
+        in to this element. The header_dict must be an indexed dict of BuoyHeaderElements
         that describes what is being read from the line, i.e. what is read from the
-        <bouy_short_name>.dat_head.dat file.
+        <buoy_short_name>.dat_head.dat file.
         """
         self.header_dict = header_dict
 
@@ -65,7 +65,7 @@ class BouyDataElement(object):
         line_parts = line.split()
 
         # Prepare the header types. These are the ones from the
-        # <bouy_short_name>.dat_head.dat file. Each distinct type
+        # <buoy_short_name>.dat_head.dat file. Each distinct type
         # becomes a new dict in the self.__dict__.
         disctinct_header_types = {x.type for x in self.header_dict.values()}
         for header_type in disctinct_header_types:
@@ -92,7 +92,7 @@ class BouyDataElement(object):
                 i += 1
 
         if i != len(header_dict):
-            raise BouyException("The number of values in the data line, %i, does not match the number of header elements, %i."%(i, len(header_dict)))
+            raise BuoyException("The number of values in the data line, %i, does not match the number of header elements, %i."%(i, len(header_dict)))
 
     def filter(self, order=None):
         """
@@ -121,10 +121,10 @@ class BouyDataElement(object):
         return "%s"%self.filter()
 
 
-class Bouy:
-    def __init__(self, short_bouy_name, data_dir=None):
+class Buoy:
+    def __init__(self, short_buoy_name, data_dir=None):
         """
-        Initiates the bouy.
+        Initiates the buoy.
 
         Based on the input name, it sets the data file and the corresponding header file.
 
@@ -139,18 +139,18 @@ class Bouy:
         self.header[1] = second_header_element
         etc.
         """
-        LOG.debug("Bouy short name (used to find data and header files): '%s'."%(short_bouy_name))
+        LOG.debug("Buoy short name (used to find data and header files): '%s'."%(short_buoy_name))
 
-        bouys = get_bouy_names(data_dir)
-        if short_bouy_name not in bouys:
-            raise BouyException("The input name of the bouy, %s, must be one of %s. Or the data file is missing?"%( \
-                    short_bouy_name, ",".join(bouys)))
+        buoys = get_buoy_names(data_dir)
+        if short_buoy_name not in buoys:
+            raise BuoyException("The input name of the buoy, %s, must be one of %s. Or the data file is missing?"%( \
+                    short_buoy_name, ",".join(buoys)))
 
         if data_dir == None:
             data_dir = DEFAULT_DATA_DIR
 
-        self.data_file = os.path.join(data_dir, "%s.dat"%(short_bouy_name))
-        self.data_header_file = os.path.join(data_dir, "%s.dat_head.dat"%(short_bouy_name))
+        self.data_file = os.path.join(data_dir, "%s.dat"%(short_buoy_name))
+        self.data_header_file = os.path.join(data_dir, "%s.dat_head.dat"%(short_buoy_name))
 
         assert(os.path.isfile(self.data_file))
         assert(os.path.isfile(self.data_header_file))
@@ -158,7 +158,7 @@ class Bouy:
         LOG.debug("Building header.")
         self.header = {}
         with open(self.data_header_file) as fp:
-            # The first name is the name of the bouy.
+            # The first name is the name of the buoy.
             self.name = fp.readline().strip()
             LOG.info(self.name)
 
@@ -166,7 +166,7 @@ class Bouy:
             for line in fp:
                 LOG.debug(line)
                 if len(line.split()) == 2:
-                    self.header[i] = BouyHeaderElement(line)
+                    self.header[i] = BuoyHeaderElement(line)
                     i += 1
 
         LOG.debug("Number of header elements: %i"%len(self.header))
@@ -174,7 +174,7 @@ class Bouy:
     def data(self, date_from_including=None, date_to_excluding=None):
         with open(self.data_file) as fp:
             for line in fp:
-                b = BouyDataElement(line, self.header)
+                b = BuoyDataElement(line, self.header)
 
                 # Make sure the data date is larger than (or equal to) date from.
                 if date_from_including != None and date_from_including >= b.date:
