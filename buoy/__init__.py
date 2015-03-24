@@ -8,7 +8,7 @@ import re
 LOG = logging.getLogger(__name__)
 
 # 
-DEFAULT_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+DEFAULT_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "buoy")
 DEFAULT_DATE_FORMAT = "%Y%m%d%H%M"
 DEFAULT_MISSING_VALUE = -99.0
 
@@ -19,6 +19,8 @@ def get_buoy_names(data_dir=None):
     if data_dir==None:
         # One back and into "data".
         data_dir = DEFAULT_DATA_DIR
+
+    LOG.debug("Data directory: %s"%(data_dir))
 
     # Return a set of all the filenames, with one dot with the .dat extension, in the data directory.
     # "header" files (files with the "header" somewhere in the name) are ignored.
@@ -146,6 +148,8 @@ class Buoy:
         if short_buoy_name not in buoys:
             raise BuoyException("The input name of the buoy, %s, must be one of '%s'. Or the data file is missing?"%( \
                     short_buoy_name, "', '".join(buoys)))
+
+        self.short_name = short_buoy_name
 
         if data_dir == None:
             data_dir = DEFAULT_DATA_DIR
