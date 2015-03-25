@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding: utf-8
 import logging
 import datetime
 import numpy as np
@@ -22,7 +23,7 @@ def get_files_from_datadir(data_dir, date_from, date_to):
 
     for root, dirs, files in os.walk(data_dir):
         # 20150313000000-DMI-L4_GHRSST-SSTfnd-DMI_OI-NSEABALTIC-v02.0-fv01.0.nc.gz
-        for filename in [f for f in files if f.endswith((".nc", ".nc.gz"))
+        for filename in [f for f in files if f.endswith(".nc") #f.endswith((".nc", ".nc.gz"))
                          and "-DMI-L4" in f
                          and date_from <= datetime.datetime.strptime(f.split("-")[0], DATE_FORMAT).date() <= date_to]:
             yield os.path.abspath(os.path.join(root, filename))
@@ -76,17 +77,20 @@ def get_closest_lat_lon_indexes(input_filename, lat, lon):
         nc.close()
 
 
-def get_values(input_filename, lat, lon, variables_to_print):
+def get_values(input_filename, lat, lon, variables_to_print, ignore_missing=False):
     # Get the closes indexes for the lat lon.
-    if args.lat != None and args.lon != None:
-        LOG.debug("Lat/lon: %f/%f"%(args.lat, args.lon))
-        lat_index, lon_index = get_closest_lat_lon_indexes(input_filename, lat, lon)
-        LOG.debug("Lat/lon indexes: %i, %i"%(lat_index, lon_index))
-        
+    LOG.debug("Getting the values from the file.")
+
+    LOG.debug("Getting the indexes for lat/lon: %f/%f"%(args.lat, args.lon))
+    lat_index, lon_index = get_closest_lat_lon_indexes(input_filename, lat, lon)
+
+    LOG.debug("The lat/lo indexes for %f/%f were: %i, %i"%(lat, lon, lat_index, lon_index))
+
     # Do the work.
     nc = netCDF4.Dataset(input_filename)
     try:
         items_to_print = []
+        one_of_the_values_are_missing = False
         for variable_name in variables_to_print:
             LOG.debug("Adding variable name: %s."%(variable_name))
             if variable_name == "lat":
@@ -94,15 +98,28 @@ def get_values(input_filename, lat, lon, variables_to_print):
             elif variable_name == "lon":
                 items_to_print.append(nc.variables['lon'][lat_index])
             elif variable_name == "time":
+                # The time variable is seconds since 1981-01-01.
                 start_date = datetime.datetime(1981, 1, 1)
                 items_to_print.append((start_date + datetime.timedelta(seconds=int(nc.variables['time'][0]))))
             else:
-                items_to_print.append(nc.variables[variable_name][0][lat_index][lon_index])
-                        
+                variable = nc.variables[variable_name][0][lat_index][lon_index]
+                if variable.mask:
+                    one_of_the_values_are_missing = True
+                items_to_print.append(variable)
+
+        LOG.debug("Checking if any of the values are missing.")
+        if one_of_the_values_are_missing:
+            LOG.debug("Checking if we are to print the values or not even if one of the values are missing.")
+            if ignore_missing:
+                LOG.debug("Returning None because one fo the values were missing.")
+                return None
+
+        # There were no missing values or we will return it after all...
         LOG.debug("Converting all items to string")
         items_to_print = map(lambda x: str(x), items_to_print)
 
-        LOG.debug("Items to string")
+        # Returning the items list.
+        LOG.debug("Items to string: %s"%(items_to_print))
         return items_to_print
     finally:
         nc.close()
@@ -136,14 +153,15 @@ if __name__ == "__main__":
             raise argparse.ArgumentTypeError("'%s' does not exist. Please specify input file!"%(path))
         return path
 
-    parser = argparse.ArgumentParser(description='Some description. This script does this and that...')
+    parser = argparse.ArgumentParser(description='Print the data point for a specified lat / lon.')
+    parser.add_argument('--data-dir', type=directory, help='Specify the directory where the data files can be found. Ignored if --input-filename is set. It still must exist, though. The files in the data dir must be of the form "<YYYYMMDD>000000-DMI-L4*.nc", e.g: "20150310000000-DMI-L4_GHRSST-SSTfnd-DMI_OI-NSEABALTIC-v02.0-fv01.0.nc".', default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sat"))
+
 
     parser.add_argument('--print-variables', action="store_true", help="Print the available variables.")
-    parser.add_argument('--print-lat-lon-range', action="store_true", help="Print the max and min lat/lon values in the file.")
-    parser.add_argument('--print-available-dates', action="store_true", help="Print the dates available in the data-dir.")
+    parser.add_argument('--print-lat-lon-range', action="store_true", help="Print the max/min lat/lon values in the file.")
+    parser.add_argument('--print-dates', action="store_true", help="Print the dates available in the data-dir. The dates are based on the file names in the data directory.")
 
     parser.add_argument('-f', '--filter', action="append", nargs="*", help="Only return a string with some of the values. Based on the header file. --print-variables to see the available filter options.")
-
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-d', '--debug', action='store_true', help="Output debugging information.")
@@ -151,25 +169,21 @@ if __name__ == "__main__":
 
     parser.add_argument('--log-filename', type=str, help="File used to output logging information.")
 
-
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--input-filename', type=file, help="Input filename.")
     group.add_argument('--date', type=date, help='Only print data values from (including) this date.', default=datetime.datetime.now().date())
     group.add_argument('--date-from', type=date, help='Only print data values from (including) this date.')
-
-    parser.add_argument('--data-dir', type=directory, help='Specify the directory where the data files can be found. Ignored if --input-filename is set. It still must exist, though.', default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sat"))
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--date-to', type=date, help='Only print data untill (exclusive) this date.')
     group.add_argument('--days-back-in-time', type=int, help='Only print data from --date or --date-from and this number of days back in time.')
     group.add_argument('--days-forward-in-time', type=int, help='Only print data from --date or --date-from and this number of days forward in time.')
 
-
+    parser.add_argument("--ignore-missing", action="store_true", help="Add this option to print the values even though one of them are missing.")
     parser.add_argument("--lat", type=float, help="Specify which latitude value to use.")
     parser.add_argument("--lon", type=float, help="Specify which longitude value to use get.")
      
-
-    # Do the parser.
+    # Do the parsing.
     args = parser.parse_args()
 
     # Set the log options.
@@ -203,24 +217,30 @@ if __name__ == "__main__":
         input_files = list(get_files_from_datadir(args.data_dir, args.date, args.date_to))
 
     if len(input_files) == 0:
-        print "No files get data from... Please specify dates."
+        print "No files to get data from... Please specify date (--date) or date range (--date-from/--date-to)."
+        print "Use --help for details."
+        print ""
+        print "Data dir: '%s'."%(os.path.abspath(args.data_dir))
 
     LOG.debug("Date from: %s. Date to: %s."%(args.date, args.date_to))
 
     try:
         # Print the dates availabe by filenames (in the datadir).
-        if args.print_available_dates or len(input_files) == 0:
+        if args.print_dates or len(input_files) == 0:
             assert(os.path.isdir(args.data_dir))
             date_strings = [date.strftime("%Y-%m-%d") for date in get_available_dates(args.data_dir)]
             date_strings.sort()
             print "Available dates:"
             print ", ".join(date_strings)
+            if len(input_files) == 0:
+                sys.exit(1)
             sys.exit()
 
         # print lat/lon ranges.
         if args.print_lat_lon_range:
             for input_filename in input_files:
                 lats, lons = get_lat_lon_ranges(input_filename)
+                print ""
                 print "Filename: '%s'"%(input_filename)
                 print "Lats: %s"%(" - ".join([str(lat) for lat in lats]))
                 print "Lons: %s"%(" - ".join([str(lon) for lon in lons]))
@@ -233,8 +253,6 @@ if __name__ == "__main__":
                 print "Available variables for %s:"%(input_filename)
                 print "'%s'"%("', '".join(variable_names))
                 sys.exit()
-
-
 
         # Print the values.
         for input_filename in input_files:
@@ -255,7 +273,7 @@ if __name__ == "__main__":
             assert(variables_is_in_file(variables_to_print, input_filename))
             print "# %s"%(" ".join(variables_to_print))
 
-            values = get_values(input_filename, args.lat, args.lon, variables_to_print)
+            values = get_values(input_filename, args.lat, args.lon, variables_to_print, ignore_missing=args.ignore_missing)
             print values
             sys.exit()
                 
