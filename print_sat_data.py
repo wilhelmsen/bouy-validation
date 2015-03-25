@@ -13,6 +13,13 @@ class SatDataException(Exception):
 
 
 def get_files_from_datadir(data_dir, date_from, date_to):
+    """
+    Getting the files from the data dir.
+    It does a walk through the data dir and finds files that
+    - Starts with a date in the specified date range.
+    - Contains the string "-DMI-L4"
+    - Ends with .nc
+    """
     LOG.debug("Data dir: '%s'"%data_dir)
     LOG.debug("Date from: '%s'."%date_from)
     LOG.debug("Date to: '%s'."%date_to)
@@ -22,14 +29,21 @@ def get_files_from_datadir(data_dir, date_from, date_to):
     date_to   = max(date_from, date_to)
 
     for root, dirs, files in os.walk(data_dir):
+        # Walk through every files/directories in the data dir.
         # 20150313000000-DMI-L4_GHRSST-SSTfnd-DMI_OI-NSEABALTIC-v02.0-fv01.0.nc.gz
-        for filename in [f for f in files if f.endswith(".nc") #f.endswith((".nc", ".nc.gz"))
+        # f.endswith((".nc", ".nc.gz"))
+        for filename in [f for f in files
+                         if f.endswith(".nc")
                          and "-DMI-L4" in f
                          and date_from <= datetime.datetime.strptime(f.split("-")[0], DATE_FORMAT).date() <= date_to]:
             yield os.path.abspath(os.path.join(root, filename))
-            
 
 def get_lat_lon_ranges(input_filename):
+    """
+    Getting the lat long ranges from a input file.
+
+    Opens the file, reads the lat/lon arrays and finds the min/max values.
+    """
     nc = netCDF4.Dataset(input_filename)
     try:
         return [min(nc.variables['lat']), max(nc.variables['lat'])], [min(nc.variables['lon']), max(nc.variables['lon'])]
@@ -37,6 +51,9 @@ def get_lat_lon_ranges(input_filename):
         nc.close()
 
 def get_variable_names(input_filename):
+    """
+    Gets the variable names in the file. That means the variables that can be read from the file.
+    """
     LOG.debug("Getting variable names from %s"%input_filename)
     nc = netCDF4.Dataset(input_filename)
     try:
@@ -45,6 +62,10 @@ def get_variable_names(input_filename):
         nc.close()
 
 def variables_is_in_file(required_variables, input_filename):
+    """
+    Makes sure that the variables in the "required_variables"
+    can actually be found in the file.
+    """
     assert(isinstance(required_variables, list))
 
     variable_names = get_variable_names(input_filename)
@@ -55,18 +76,50 @@ def variables_is_in_file(required_variables, input_filename):
     return True
 
 def get_available_dates(data_dir):
+    """
+    Gets the dates that are availabe.
+
+    That is, it
+    - finds all the relevant files (see get_files_from_datadir) in the data dir,
+    - parses the filenames
+    - returns the date from the filename (not the content of the file).
+    """
     date_from = datetime.datetime(1981, 1, 1).date()
     date_to = datetime.datetime.now().date() + datetime.timedelta(days = 1)
     for filename in get_files_from_datadir(data_dir, date_from, date_to):
         yield datetime.datetime.strptime(os.path.basename(filename).split("-")[0], "%Y%m%d%H%M%S").date()
 
-
 def get_closest_lat_lon_indexes(input_filename, lat, lon):
+    """
+    Gets the indexes for the specified lat/lon values.
+
+    E.g. analysed_sst is a grid. The indexes correspond to (time, lat, lon).
+    Time is only one dimension in our files, so we need the lat / lon indexes.
+
+    TODO:
+                     LON
+    +-----+-----+-----+-----+-----+-----+
+    |  x  |  x  |  x  |  x  |  x  |  x  |
+    +-----+-----+-----+-----+-----+-----+ LAT
+    |  x  |  x  |  x  |  x  |  x  |  x  |
+    +-----+-----+-----+-----+-----+-----+
+    
+    The lat/lon points are the center values in the grid cell.
+    The edges are therefore not included below. Fix this by:
+    - adding grid_width/2 to the max lon values
+    - subtract grid_width/2 to the min lon valus
+    - adding grid_height/2 to the max lat values
+    - subtract grid_height/2 to the min lat valus
+    """
     LOG.debug("Filename: %s"%(input_filename))
     lats, lons = get_lat_lon_ranges(input_filename)
     
+    # TODO: Missing the edges!!
+    # lat[0] - grid_cell_height/2, lat[1] + grid_cell_height/2
     if not lats[0] <= lat <= lats[1]:
         raise SatDataException("Latitude %s is outside latitude range %s."%(lat, " - ".join([str(l) for l in lats])))
+    
+    # lon[0] - grid_cell_width/2, lon[1] + grid_cell_width/2
     if not lons[0] <= lon <= lons[1]:
         raise SatDataException("Longitude %s is outside longitude range %s."%(lon, " - ".join([str(l) for l in lons])))
 
@@ -76,8 +129,17 @@ def get_closest_lat_lon_indexes(input_filename, lat, lon):
     finally:
         nc.close()
 
-
 def get_values(input_filename, lat, lon, variables_to_print, ignore_missing=False):
+    """
+    Getting the values for the specified lat / lon values.
+
+    It gets the indexes closest to lat/lon and
+    returns a list of the values specified in variables_to_print.
+
+    If one of the values are missing, None will be returned,
+    unless ignore_missing is True. That will return the
+    list even with missing values.
+    """    
     # Get the closes indexes for the lat lon.
     LOG.debug("Getting the values from the file.")
 
@@ -140,8 +202,7 @@ if __name__ == "__main__":
         raise e
 
     def date( date_string ):
-        # argparse.ArgumentTypeError()
-        return datetime.datetime.strptime( date_string, '%Y-%m-%d' ).date()
+        return datetime.datetime.strptime(date_string, '%Y-%m-%d').date()
 
     def directory(path):
         if not os.path.isdir(path):
