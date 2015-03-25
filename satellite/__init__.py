@@ -46,47 +46,6 @@ def get_files_from_datadir(data_dir, date_from, date_to):
             LOG.debug("Found file '%s'."%(abs_filename))
             yield abs_filename
 
-def get_date_from_filename(input_filename):
-    return datetime.datetime.strptime(os.path.basename(input_filename).split("-")[0], DATE_FORMAT)
-
-def get_lat_lon_ranges(input_filename):
-    """
-    Getting the lat long ranges from a input file.
-
-    Opens the file, reads the lat/lon arrays and finds the min/max values.
-    """
-    nc = netCDF4.Dataset(input_filename)
-    try:
-        return [min(nc.variables['lat']), max(nc.variables['lat'])], [min(nc.variables['lon']), max(nc.variables['lon'])]
-    finally:
-        nc.close()
-
-def get_variable_names(input_filename):
-    """
-    Gets the variable names in the file. That means the variables that can be read from the file.
-    """
-    LOG.debug("Getting variable names from %s"%input_filename)
-    nc = netCDF4.Dataset(input_filename)
-    try:
-        return {str(var) for var in nc.variables}
-    finally:
-        nc.close()
-
-def variables_is_in_file(required_variables, input_filename):
-    """
-    Makes sure that the variables in the "required_variables"
-    can actually be found in the file.
-    """
-    LOG.debug("Required variables: %s"%(required_variables))
-    assert(isinstance(required_variables, list))
-
-    variable_names = get_variable_names(input_filename)
-    for required_variable in required_variables:
-        if required_variable not in variable_names:
-            LOG.warning("The file, '%s', must have the variable '%s'."%(input_filename, required_variable))
-            return False
-    return True
-
 def get_available_dates(data_dir):
     """
     Gets the dates that are availabe.
@@ -101,104 +60,162 @@ def get_available_dates(data_dir):
     for filename in get_files_from_datadir(data_dir, date_from, date_to):
         yield get_date_from_filename(filename)
 
-def get_closest_lat_lon_indexes(input_filename, lat, lon):
-    """
-    Gets the indexes for the specified lat/lon values.
 
-    E.g. analysed_sst is a grid. The indexes correspond to (time, lat, lon).
-    Time is only one dimension in our files, so we need the lat / lon indexes.
+def get_date_from_filename(filename):
+    return datetime.datetime.strptime(os.path.basename(filename).split("-")[0], DATE_FORMAT)
 
-    TODO:
-                     LON
-    +-----+-----+-----+-----+-----+-----+
-    |  x  |  x  |  x  |  x  |  x  |  x  |
-    +-----+-----+-----+-----+-----+-----+ LAT
-    |  x  |  x  |  x  |  x  |  x  |  x  |
-    +-----+-----+-----+-----+-----+-----+
+
+class Satellite(object):
+    def __init__(self, input_filename):
+        self.input_filename = input_filename
+        
+    def __enter__(self):
+        return self.
+
+    def __exit__(self, type, value, traceback):
+        pass
+
+    def variables_is_in_file(self, required_variables):
+        """
+        Makes sure that the variables in the "required_variables"
+        can actually be found in the file.
+        """
+        LOG.debug("Required variables: %s"%(required_variables))
+        assert(isinstance(required_variables, list))
+
+        variable_names = self.get_variable_names()
+        for required_variable in required_variables:
+            if required_variable not in variable_names:
+                LOG.warning("The file, '%s', must have the variable '%s'."%(self.input_filename, required_variable))
+                return False
+        return True
+
+    def get_closest_lat_lon_indexes(self, lat, lon):
+        """
+        Gets the indexes for the specified lat/lon values.
+        
+        E.g. analysed_sst is a grid. The indexes correspond to (time, lat, lon).
+        Time is only one dimension in our files, so we need the lat / lon indexes.
+        
+        TODO:
+                         LON
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+ LAT
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+
+        
+        The lat/lon points are the center values in the grid cell.
+        The edges are therefore not included below. Fix this by:
+        - adding grid_width/2 to the max lon values
+        - subtract grid_width/2 to the min lon valus
+        - adding grid_height/2 to the max lat values
+        - subtract grid_height/2 to the min lat valus
+        """
+        lats, lons = self.get_lat_lon_ranges()
     
-    The lat/lon points are the center values in the grid cell.
-    The edges are therefore not included below. Fix this by:
-    - adding grid_width/2 to the max lon values
-    - subtract grid_width/2 to the min lon valus
-    - adding grid_height/2 to the max lat values
-    - subtract grid_height/2 to the min lat valus
-    """
-    LOG.debug("Filename: %s"%(input_filename))
-    lats, lons = get_lat_lon_ranges(input_filename)
+        # TODO: Missing the edges!!
+        # lat[0] - grid_cell_height/2, lat[1] + grid_cell_height/2
+        if not lats[0] <= lat <= lats[1]:
+            raise SatDataException("Latitude %s is outside latitude range %s."%(lat, " - ".join([str(l) for l in lats])))
     
-    # TODO: Missing the edges!!
-    # lat[0] - grid_cell_height/2, lat[1] + grid_cell_height/2
-    if not lats[0] <= lat <= lats[1]:
-        raise SatDataException("Latitude %s is outside latitude range %s."%(lat, " - ".join([str(l) for l in lats])))
-    
-    # lon[0] - grid_cell_width/2, lon[1] + grid_cell_width/2
-    if not lons[0] <= lon <= lons[1]:
-        raise SatDataException("Longitude %s is outside longitude range %s."%(lon, " - ".join([str(l) for l in lons])))
+        # lon[0] - grid_cell_width/2, lon[1] + grid_cell_width/2
+        if not lons[0] <= lon <= lons[1]:
+            raise SatDataException("Longitude %s is outside longitude range %s."%(lon, " - ".join([str(l) for l in lons])))
 
-    nc = netCDF4.Dataset(input_filename)
-    try:
-        return abs((nc.variables['lat'] - np.float32(lat))).argmin(), abs((nc.variables['lon'] - np.float32(lon))).argmin()
-    finally:
-        nc.close()
+        nc = netCDF4.Dataset(self.input_filename)
+        try:
+            lat_index = abs((nc.variables['lat'] - np.float32(lat))).argmin()
+            lon_index = abs((nc.variables['lon'] - np.float32(lon))).argmin()
 
-def get_values(input_filename, lat, lon, variables_to_print=None, ignore_if_missing=False):
-    """
-    Getting the values for the specified lat / lon values.
+            LOG.debug("Lat index: %i. Lat: %f."%(lat_index, nc.variables['lat'][lat_index]))
+            LOG.debug("Lon index: %i. Lon: %f."%(lon_index, nc.variables['lon'][lon_index]))
+            return lat_index, lon_index
+        finally:
+            nc.close()
 
-    It gets the indexes closest to lat/lon and
-    returns a list of the values specified in variables_to_print.
+    def get_values(self, lat, lon, variables_to_print=None, ignore_if_missing=False):
+        """
+        Getting the values for the specified lat / lon values.
+        
+        It gets the indexes closest to lat/lon and
+        returns a list of the values specified in variables_to_print.
+        
+        If ignore_if_missing is set, None will be returned, if one of the values are missing.
+        """
+        # Get the closes indexes for the lat lon.
+        LOG.debug("Getting the values from the file.")
 
-    If ignore_if_missing is set, None will be returned, if one of the values are missing.
-    """
-    # Get the closes indexes for the lat lon.
-    LOG.debug("Getting the values from the file.")
+        LOG.debug("Getting the indexes for lat/lon: %f/%f"%(lat, lon))
+        lat_index, lon_index = self.get_closest_lat_lon_indexes(lat, lon)
 
-    LOG.debug("Getting the indexes for lat/lon: %f/%f"%(lat, lon))
-    lat_index, lon_index = get_closest_lat_lon_indexes(input_filename, lat, lon)
+        LOG.debug("The lat/lo indexes for %f/%f were: %i, %i"%(lat, lon, lat_index, lon_index))
 
-    LOG.debug("The lat/lo indexes for %f/%f were: %i, %i"%(lat, lon, lat_index, lon_index))
+        if variables_to_print == None:
+            LOG.debug("Setting variables to print to:")
+            variables_to_print = self.get_variable_names()
+            LOG.debug(variables_to_print)
 
-    if variables_to_print == None:
-        LOG.debug("Setting variables to print to:")
-        variables_to_print = get_variable_names(input_filename)
-        LOG.debug(variables_to_print)
+        # Do the work.
+        nc = netCDF4.Dataset(self.input_filename)
+        try:
+            items_to_print = []
+            one_of_the_values_are_missing = False
+            for variable_name in variables_to_print:
+                LOG.debug("Adding variable name: %s."%(variable_name))
+                if variable_name == "lat":
+                    items_to_print.append(nc.variables['lat'][lat_index])
+                elif variable_name == "lon":
+                    items_to_print.append(nc.variables['lon'][lon_index])
+                elif variable_name == "time":
+                    # The time variable is seconds since 1981-01-01.
+                    start_date = datetime.datetime(1981, 1, 1)
+                    items_to_print.append((start_date + datetime.timedelta(seconds=int(nc.variables['time'][0]))))
+                else:
+                    variable = nc.variables[variable_name][0][lat_index][lon_index]
+                    if hasattr(variable, "mask"):
+                        if variable.mask:
+                            one_of_the_values_are_missing = True
+                    items_to_print.append(variable)
 
-    # Do the work.
-    nc = netCDF4.Dataset(input_filename)
-    try:
-        items_to_print = []
-        one_of_the_values_are_missing = False
-        for variable_name in variables_to_print:
-            LOG.debug("Adding variable name: %s."%(variable_name))
-            if variable_name == "lat":
-                items_to_print.append(nc.variables['lat'][lat_index])
-            elif variable_name == "lon":
-                items_to_print.append(nc.variables['lon'][lat_index])
-            elif variable_name == "time":
-                # The time variable is seconds since 1981-01-01.
-                start_date = datetime.datetime(1981, 1, 1)
-                items_to_print.append((start_date + datetime.timedelta(seconds=int(nc.variables['time'][0]))))
-            else:
-                variable = nc.variables[variable_name][0][lat_index][lon_index]
-                if hasattr(variable, "mask"):
-                    if variable.mask:
-                        one_of_the_values_are_missing = True
-                items_to_print.append(variable)
+            LOG.debug("Checking if any of the values are missing.")
+            if one_of_the_values_are_missing:
+                LOG.debug("Checking if we are to print the values or not even if one of the values are missing.")
+                if ignore_if_missing:
+                    LOG.debug("Returning None because one fo the values were missing.")
+                    return None
 
-        LOG.debug("Checking if any of the values are missing.")
-        if one_of_the_values_are_missing:
-            LOG.debug("Checking if we are to print the values or not even if one of the values are missing.")
-            if ignore_if_missing:
-                LOG.debug("Returning None because one fo the values were missing.")
-                return None
+            # There were no missing values or we will return it after all...
+            LOG.debug("Converting all items to string")
+            items_to_print = map(lambda x: str(x), items_to_print)
 
-        # There were no missing values or we will return it after all...
-        LOG.debug("Converting all items to string")
-        items_to_print = map(lambda x: str(x), items_to_print)
+            # Returning the items list.
+            LOG.debug("Items to string: %s"%(items_to_print))
+            return items_to_print
+        finally:
+            nc.close()
 
-        # Returning the items list.
-        LOG.debug("Items to string: %s"%(items_to_print))
-        return items_to_print
-    finally:
-        nc.close()
+    def get_lat_lon_ranges(self):
+        """
+        Getting the lat long ranges from a input file.
+        
+        Opens the file, reads the lat/lon arrays and finds the min/max values.
+        """
+        nc = netCDF4.Dataset(self.input_filename)
+        try:
+            return [min(nc.variables['lat']), max(nc.variables['lat'])], [min(nc.variables['lon']), max(nc.variables['lon'])]
+        finally:
+            nc.close()
+
+
+    def get_variable_names(self):
+        """
+        Gets the variable names in the file. That means the variables that can be read from the file.
+        """
+        LOG.debug("Getting variable names from %s"%self.input_filename)
+        nc = netCDF4.Dataset(self.input_filename)
+        try:
+            return {str(var) for var in nc.variables}
+        finally:
+            nc.close()
 

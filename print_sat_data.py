@@ -118,7 +118,8 @@ if __name__ == "__main__":
         # print lat/lon ranges.
         if args.print_lat_lon_range:
             for input_filename in input_files:
-                lats, lons = satellite.get_lat_lon_ranges(input_filename)
+                sat = satellite.Satellite(input_filename)
+                lats, lons = sat.get_lat_lon_ranges()
                 print ""
                 print "Filename: '%s'"%(input_filename)
                 print "Lats: %s"%(" - ".join([str(lat) for lat in lats]))
@@ -128,7 +129,8 @@ if __name__ == "__main__":
         # Print variable names.
         if args.print_variables:
             for input_filename in input_files:
-                variable_names = satellite.get_variable_names(input_filename)
+                sat = satellite.Satellite(input_filename)
+                variable_names = sat.get_variable_names()
                 print "Available variables for %s:"%(input_filename)
                 print "'%s'"%("', '".join(variable_names))
                 sys.exit()
@@ -139,7 +141,8 @@ if __name__ == "__main__":
 
         # Print the values.
         for input_filename in input_files:
-            assert(satellite.variables_is_in_file(["lat", "lon"], input_filename))
+            sat = satellite.Satellite(input_filename)
+            assert(sat.variables_is_in_file(["lat", "lon"]))
 
             # Filtering.
             # It was not really possible to create a default filter with argparse. The new filter variables were inserted
@@ -147,16 +150,16 @@ if __name__ == "__main__":
             variables_to_print = []
             if args.filter == None:
                 args.filter = [None,]
-                variables_to_print = satellite.get_variable_names(input_filename)
+                variables_to_print = sat.get_variable_names()
             else:
                 # Just make sure the filter variable is a list, and not a str, e.g.
                 assert(isinstance(args.filter, list))
                 variables_to_print = args.filter[0]
 
-            assert(satellite.variables_is_in_file(list(variables_to_print), input_filename))
+            assert(sat.variables_is_in_file(list(variables_to_print)))
             print "# %s"%(" ".join(variables_to_print))
 
-            values = satellite.get_values(input_filename, args.lat, args.lon, variables_to_print, ignore_if_missing=args.ignore_if_missing)
+            values = sat.get_values(args.lat, args.lon, variables_to_print, ignore_if_missing=args.ignore_if_missing)
             if values != None:
                 print " ".join(values)
             else:
