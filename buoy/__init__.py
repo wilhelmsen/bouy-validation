@@ -1,3 +1,4 @@
+# coding: utf-8
 import os
 import glob
 import logging
@@ -149,6 +150,7 @@ class Buoy:
             raise BuoyException("The input name of the buoy, %s, must be one of '%s'. Or the data file is missing?"%( \
                     short_buoy_name, "', '".join(buoys)))
 
+        self.lat, self.lon = Buoy.short_name_2_lat_lon(short_buoy_name)
         self.short_name = short_buoy_name
 
         if data_dir == None:
@@ -219,3 +221,36 @@ class Buoy:
 
                 # Return the buoy object.
                 yield b
+
+    @staticmethod
+    def short_name_2_lat_lon(short_name):
+        """
+        Nordsee:
+        Nordseeboje II  55° 00' N, 06° 20' E    nsb.dat, nsb.dat95,....
+        Deutsche Bucht  54° 10' N, 07° 27' E    dbucht.dat,dbucht.dat95,.
+        Elbe            54° 00' N, 08° 07' E    elbe.dat,elbe.dat95,....
+        Ems             54° 10' N, 06° 21' E    ems.dat, ems.dat95,....
+        Nordseeboje III 54° 41' N, 06° 47' E    nsb3.dat,....
+        FINO I          54° 00\221 N, 06° 35\221 E      fino1.dat
+        FINO 3          55° 12\222 N, 07° 10\222 E      fino3.dat
+                Ostsee:
+        Kiel            54° 30' N, 10° 16' E    kiel.dat,kiel.dat95,....
+        Fehmarn Belt    54° 36' N, 11° 09' E    fehm.dat,fehm.dat95,....
+        Darßer Schwelle 54° 42' N, 12° 42' E    dars.dat,dars.dat95,....
+        Oder Bank       54° 05' N, 14° 10' E    oder.dat,oder.dat95,....
+        Arkona Becken   54° 53' N, 13° 52' E    arko.dat,....
+        """
+        return {'nsb':    (55.0          ,   6 + 20/60.0),
+                'dbucht': (54.0 + 10/60.0,   7 + 27/60.0),
+                'elbe':   (54.0          ,   8 +  7/60.0),
+                'ems':    (54.0 + 10/60.0,   6 + 21/60.0),
+                'nsb3':   (54.0 + 41/60.0,   6 + 47/60.0),
+                'fino1':  (54.0,             6 + 35/60.0),
+                'fino3':  (55.0 + 12/60.0 ,  7 + 10/60.0),
+                
+                'kiel':   (54.0 + 30/60.0,  10 + 26/60.0),
+                'fehm':   (54.0 + 36/60.0,  11 +  9/60.0),
+                'dars':   (54.0 + 42/60.0,  12 + 42/60.0),
+                'oder':   (54.0 + 05/60.0,  14 + 10/60.0),
+                'arko':   (54.0 + 53/60.0,  13 + 52/60.0),
+                }[short_name]

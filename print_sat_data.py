@@ -20,7 +20,7 @@ if __name__ == "__main__":
         raise e
 
     def date( date_string ):
-        return datetime.datetime.strptime(date_string, '%Y-%m-%d').date()
+        return datetime.datetime.strptime(date_string, '%Y-%m-%d')
 
     def directory(path):
         if not os.path.isdir(path):
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--input-filename', type=file, help="Input filename.")
-    group.add_argument('--date', type=date, help='Only print data values from (including) this date.', default=datetime.datetime.now().date())
+    group.add_argument('--date', type=date, help='Only print data values from (including) this date.', default=datetime.datetime.now())
     group.add_argument('--date-from', type=date, help='Only print data values from (including) this date.')
 
     group = parser.add_mutually_exclusive_group()

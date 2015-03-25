@@ -41,10 +41,13 @@ def get_files_from_datadir(data_dir, date_from, date_to):
         for filename in [f for f in files
                          if f.endswith(".nc")
                          and "-DMI-L4" in f
-                         and date_from <= datetime.datetime.strptime(f.split("-")[0], DATE_FORMAT).date() <= date_to]:
+                         and date_from <= get_date_from_filename(f) <= date_to]:
             abs_filename = os.path.abspath(os.path.join(root, filename))
             LOG.debug("Found file '%s'."%(abs_filename))
             yield abs_filename
+
+def get_date_from_filename(input_filename):
+    return datetime.datetime.strptime(os.path.basename(input_filename).split("-")[0], DATE_FORMAT)
 
 def get_lat_lon_ranges(input_filename):
     """
@@ -93,10 +96,10 @@ def get_available_dates(data_dir):
     - parses the filenames
     - returns the date from the filename (not the content of the file).
     """
-    date_from = datetime.datetime(1981, 1, 1).date()
-    date_to = datetime.datetime.now().date() + datetime.timedelta(days = 1)
+    date_from = datetime.datetime(1981, 1, 1)
+    date_to = datetime.datetime.now() + datetime.timedelta(days = 1)
     for filename in get_files_from_datadir(data_dir, date_from, date_to):
-        yield datetime.datetime.strptime(os.path.basename(filename).split("-")[0], "%Y%m%d%H%M%S").date()
+        yield get_date_from_filename(filename)
 
 def get_closest_lat_lon_indexes(input_filename, lat, lon):
     """
@@ -138,7 +141,7 @@ def get_closest_lat_lon_indexes(input_filename, lat, lon):
     finally:
         nc.close()
 
-def get_values(input_filename, lat, lon, variables_to_print, ignore_if_missing=False):
+def get_values(input_filename, lat, lon, variables_to_print=None, ignore_if_missing=False):
     """
     Getting the values for the specified lat / lon values.
 
@@ -146,7 +149,7 @@ def get_values(input_filename, lat, lon, variables_to_print, ignore_if_missing=F
     returns a list of the values specified in variables_to_print.
 
     If ignore_if_missing is set, None will be returned, if one of the values are missing.
-    """    
+    """
     # Get the closes indexes for the lat lon.
     LOG.debug("Getting the values from the file.")
 
@@ -154,6 +157,11 @@ def get_values(input_filename, lat, lon, variables_to_print, ignore_if_missing=F
     lat_index, lon_index = get_closest_lat_lon_indexes(input_filename, lat, lon)
 
     LOG.debug("The lat/lo indexes for %f/%f were: %i, %i"%(lat, lon, lat_index, lon_index))
+
+    if variables_to_print == None:
+        LOG.debug("Setting variables to print to:")
+        variables_to_print = get_variable_names(input_filename)
+        LOG.debug(variables_to_print)
 
     # Do the work.
     nc = netCDF4.Dataset(input_filename)
