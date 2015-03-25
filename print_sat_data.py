@@ -58,7 +58,7 @@ if __name__ == "__main__":
     group.add_argument('--days-back-in-time', type=int, help='Only print data from --date or --date-from and this number of days back in time.')
     group.add_argument('--days-forward-in-time', type=int, help='Only print data from --date or --date-from and this number of days forward in time.')
 
-    parser.add_argument("--ignore-missing", action="store_true", help="Add this option to print the values even though one of them are missing.")
+    parser.add_argument("--ignore-if-missing", action="store_true", help="Add this option to print the values only if there are NO missing values for the specified lat/lon values.")
     parser.add_argument("--lat", type=float, help="Specify which latitude value to use.")
     parser.add_argument("--lon", type=float, help="Specify which longitude value to use get.")
      
@@ -133,6 +133,10 @@ if __name__ == "__main__":
                 print "'%s'"%("', '".join(variable_names))
                 sys.exit()
 
+
+        if args.lat == None or args.lon == None:
+            raise argparse.ArgumentTypeError("Both lat ('%s') and lon ('%s') must be set to extract the variables!"%(args.lat, args.lon))
+
         # Print the values.
         for input_filename in input_files:
             assert(satellite.variables_is_in_file(["lat", "lon"], input_filename))
@@ -149,11 +153,14 @@ if __name__ == "__main__":
                 assert(isinstance(args.filter, list))
                 variables_to_print = args.filter[0]
 
-            assert(satellite.variables_is_in_file(variables_to_print, input_filename))
+            assert(satellite.variables_is_in_file(list(variables_to_print), input_filename))
             print "# %s"%(" ".join(variables_to_print))
 
-            values = satellite.get_values(input_filename, args.lat, args.lon, variables_to_print, ignore_missing=args.ignore_missing)
-            print values
+            values = satellite.get_values(input_filename, args.lat, args.lon, variables_to_print, ignore_if_missing=args.ignore_if_missing)
+            if values != None:
+                print " ".join(values)
+            else:
+                print values
             sys.exit()
                 
 

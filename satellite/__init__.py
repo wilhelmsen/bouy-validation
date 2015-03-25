@@ -74,6 +74,7 @@ def variables_is_in_file(required_variables, input_filename):
     Makes sure that the variables in the "required_variables"
     can actually be found in the file.
     """
+    LOG.debug("Required variables: %s"%(required_variables))
     assert(isinstance(required_variables, list))
 
     variable_names = get_variable_names(input_filename)
@@ -137,21 +138,19 @@ def get_closest_lat_lon_indexes(input_filename, lat, lon):
     finally:
         nc.close()
 
-def get_values(input_filename, lat, lon, variables_to_print, ignore_missing=False):
+def get_values(input_filename, lat, lon, variables_to_print, ignore_if_missing=False):
     """
     Getting the values for the specified lat / lon values.
 
     It gets the indexes closest to lat/lon and
     returns a list of the values specified in variables_to_print.
 
-    If one of the values are missing, None will be returned,
-    unless ignore_missing is True. That will return the
-    list even with missing values.
+    If ignore_if_missing is set, None will be returned, if one of the values are missing.
     """    
     # Get the closes indexes for the lat lon.
     LOG.debug("Getting the values from the file.")
 
-    LOG.debug("Getting the indexes for lat/lon: %f/%f"%(args.lat, args.lon))
+    LOG.debug("Getting the indexes for lat/lon: %f/%f"%(lat, lon))
     lat_index, lon_index = get_closest_lat_lon_indexes(input_filename, lat, lon)
 
     LOG.debug("The lat/lo indexes for %f/%f were: %i, %i"%(lat, lon, lat_index, lon_index))
@@ -173,14 +172,15 @@ def get_values(input_filename, lat, lon, variables_to_print, ignore_missing=Fals
                 items_to_print.append((start_date + datetime.timedelta(seconds=int(nc.variables['time'][0]))))
             else:
                 variable = nc.variables[variable_name][0][lat_index][lon_index]
-                if variable.mask:
-                    one_of_the_values_are_missing = True
+                if hasattr(variable, "mask"):
+                    if variable.mask:
+                        one_of_the_values_are_missing = True
                 items_to_print.append(variable)
 
         LOG.debug("Checking if any of the values are missing.")
         if one_of_the_values_are_missing:
             LOG.debug("Checking if we are to print the values or not even if one of the values are missing.")
-            if ignore_missing:
+            if ignore_if_missing:
                 LOG.debug("Returning None because one fo the values were missing.")
                 return None
 
