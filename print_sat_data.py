@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
 
     parser.add_argument('--print-variables', action="store_true", help="Print the available variables.")
-    parser.add_argument('--print-lat-lon-range', action="store_true", help="Print the max/min lat/lon values in the file.")
+    parser.add_argument('--print-lat-lon-ranges', action="store_true", help="Print the max/min lat/lon values in the file.")
     parser.add_argument('--print-dates', action="store_true", help="Print the dates available in the data-dir. The dates are based on the file names in the data directory.")
 
     parser.add_argument('-f', '--filter', action="append", nargs="*", help="Only return a string with some of the values. Based on the header file. --print-variables to see the available filter options.")
@@ -116,7 +116,7 @@ if __name__ == "__main__":
             sys.exit()
 
         # print lat/lon ranges.
-        if args.print_lat_lon_range:
+        if args.print_lat_lon_ranges:
             for input_filename in input_files:
                 with satellite.Satellite(input_filename) as sat:
                     lats, lons = sat.get_lat_lon_ranges()
@@ -137,7 +137,7 @@ if __name__ == "__main__":
 
 
         if args.lat == None or args.lon == None:
-            raise argparse.ArgumentTypeError("Both lat ('%s') and lon ('%s') must be set to extract the variables!"%(args.lat, args.lon))
+            raise argparse.ArgumentTypeError("Both lat ('%s') and lon ('%s') must be set to extract the variables!\nUse --print-lat-lon-ranges to see available lat/lon values for the given date."%(args.lat, args.lon))
 
         # Print the values.
         for input_filename in input_files:
