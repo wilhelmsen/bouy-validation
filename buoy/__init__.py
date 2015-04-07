@@ -104,13 +104,19 @@ class BuoyDataElement(object):
         A filter is applied to the data when printing it.
 
         The order filter must correspond to the data in the dat_header.dat file.
-        It must be a list of key/values, e.g.: [WT:3, WT:6]
+        It must be a list of key/values, e.g.: ["WT:3", "WT:6"], or a string
+        with one value, "WT:3".
         """
         LOG.debug("Order: '%s'."%(order))
         string_elements = []
         if order != None:
             # The order must be a list. Se __doc__ above.
-            assert(isinstance(order, list))
+            if not isinstance(order, list):
+                order = [order,]
+
+            if "date" in order:
+                order[order.index("date")] = "date:"
+
             for header_type, header_value in [x.split(":") for x in order]:
                 LOG.debug("%s %s"%(header_type, header_value))
                 if header_type == "date":
@@ -122,6 +128,8 @@ class BuoyDataElement(object):
             string_elements.append(self.date.strftime(DEFAULT_DATE_FORMAT))
             for header in self.headers:
                 string_elements.append("%s"%self.__dict__[header.type][header.value])
+
+        # Return the values as a string.
         return " ".join(string_elements)
 
     def __str__(self):
@@ -240,17 +248,19 @@ class Buoy:
         Oder Bank       54° 05' N, 14° 10' E    oder.dat,oder.dat95,....
         Arkona Becken   54° 53' N, 13° 52' E    arko.dat,....
         """
-        return {'nsb':    (55.0          ,   6 + 20/60.0),
-                'dbucht': (54.0 + 10/60.0,   7 + 27/60.0),
-                'elbe':   (54.0          ,   8 +  7/60.0),
-                'ems':    (54.0 + 10/60.0,   6 + 21/60.0),
-                'nsb3':   (54.0 + 41/60.0,   6 + 47/60.0),
-                'fino1':  (54.0,             6 + 35/60.0),
-                'fino3':  (55.0 + 12/60.0 ,  7 + 10/60.0),
+        return {'nsb':         (55.0          ,   6 + 20/60.0),
+                'dbucht':      (54.0 + 10/60.0,   7 + 27/60.0),
+                'elbe':        (54.0          ,   8 +  7/60.0),
+                'ems':         (54.0 + 10/60.0,   6 + 21/60.0),
+                'nsb3':        (54.0 + 41/60.0,   6 + 47/60.0),
+                'fino1':       (54.0,             6 + 35/60.0),
+                'fino3':       (55.0 + 12/60.0 ,  7 + 10/60.0),
                 
-                'kiel':   (54.0 + 30/60.0,  10 + 26/60.0),
-                'fehm':   (54.0 + 36/60.0,  11 +  9/60.0),
-                'dars':   (54.0 + 42/60.0,  12 + 42/60.0),
-                'oder':   (54.0 + 05/60.0,  14 + 10/60.0),
-                'arko':   (54.0 + 53/60.0,  13 + 52/60.0),
+                'kiel':        (54.0 + 30/60.0,  10 + 26/60.0),
+                'fehm':        (54.0 + 36/60.0,  11 +  9/60.0),
+                'dars':        (54.0 + 42/60.0,  12 + 42/60.0),
+                'dars.datneu': (54.0 + 42/60.0,  12 + 42/60.0),
+                'oder':        (54.0 + 05/60.0,  14 + 10/60.0),
+                'arko':        (54.0 + 53/60.0,  13 + 52/60.0),
+                'arko.datneu': (54.0 + 53/60.0,  13 + 52/60.0),
                 }[short_name]

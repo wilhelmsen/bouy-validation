@@ -41,7 +41,7 @@ def get_files_from_datadir(data_dir, date_from, date_to):
         for filename in [f for f in files
                          if f.endswith(".nc")
                          and "-DMI-L4" in f
-                         and date_from <= get_date_from_filename(f) <= date_to]:
+                         and date_from <= _get_date_from_filename(f) <= date_to]:
             abs_filename = os.path.abspath(os.path.join(root, filename))
             LOG.debug("Found file '%s'."%(abs_filename))
             yield abs_filename
@@ -58,27 +58,72 @@ def get_available_dates(data_dir):
     date_from = datetime.datetime(1981, 1, 1)
     date_to = datetime.datetime.now() + datetime.timedelta(days = 1)
     for filename in get_files_from_datadir(data_dir, date_from, date_to):
-        yield get_date_from_filename(filename)
+        yield _get_date_from_filename(filename)
 
 
-def get_date_from_filename(filename):
+def _get_date_from_filename(filename):
     return datetime.datetime.strptime(os.path.basename(filename).split("-")[0], DATE_FORMAT)
 
 class SatelliteDataPoint(object):
-    pass
+    def __init__(self):
+        # Make the data element ready.
+        self.data = {}
+    
+    def append(self, key, value):
+        """
+        Appends a key-value-pair to a datapoint.
+        """
+        self.data[key] = value
+
+    def filter(self, order=None, ignore_point_if_missing=False):
+        """
+        Returns a string with the values corresponding to what is given in order.
+        If order is None, all the values are written.
+
+        Order can be either a list ["lat", "lon"] or a string with one key "lat".
+        """
+        # If one of the values are missing, and the filter is to ignore the missing values,
+        # None is returned at once.
+        for key, value in self.data.iteritems():
+            if ignore_point_if_missing and hasattr(variable, "mask"):
+                if variable.mask:
+                    return None
+        values = []
+
+        # If the datapoint is actually filtered.
+        if order != None:
+            if not isinstance(order, list):
+                order = [order, ] 
+            for key in order:
+                values.append(self.data[key])
+
+        # No filtering. All data is written.
+        else:
+            values =  self.data.values()
+
+        values = {str(value) for value in values}
+        # Return a string with all the values.
+        return " ".join(values)
+
+    def __str__(self):
+        return self.filter()
+
+
 
 class Satellite(object):
     def __init__(self, input_filename):
         self.input_filename = input_filename
-        # TODO: Add open here...
+        self.nc = netCDF4.Dataset(self.input_filename)
         
     def __enter__(self):
-        self.nc = netCDF4.Dataset(self.input_filename)
         return self
 
     def __exit__(self, type, value, traceback):
         if self.nc and self.nc != None:
             self.nc.close()
+
+    def get_date(self):
+        return _get_date_from_filename(self.input_filename)
 
     def variables_is_in_file(self, required_variables):
         """
@@ -135,14 +180,10 @@ class Satellite(object):
         LOG.debug("Lon index: %i. Lon: %f."%(lon_index, self.nc.variables['lon'][lon_index]))
         return lat_index, lon_index
 
-    def get_values(self, lat, lon, variables_to_print=None, ignore_if_missing=False):
+    def data(self, lat, lon):
         """
-        Getting the values for the specified lat / lon values.
-        
-        It gets the indexes closest to lat/lon and
-        returns a list of the values specified in variables_to_print.
-        
-        If ignore_if_missing is set, None will be returned, if one of the values are missing.
+        Getting the values (datapoint) for the specified lat / lon values.
+        It gets the indexes closest to lat/lon and returns a SatelliteDataPoint with the values.
         """
         # Get the closes indexes for the lat lon.
         LOG.debug("Getting the values from the file.")
@@ -152,45 +193,25 @@ class Satellite(object):
 
         LOG.debug("The lat/lo indexes for %f/%f were: %i, %i"%(lat, lon, lat_index, lon_index))
 
-        if variables_to_print == None:
-            LOG.debug("Setting variables to print to:")
-            variables_to_print = self.get_variable_names()
-            LOG.debug(variables_to_print)
-
-        # Do the work.
-        items_to_print = []
-        one_of_the_values_are_missing = False
-        for variable_name in variables_to_print:
+        data_point = SatelliteDataPoint()
+        # Add the values to the datapoint.
+        for variable_name in self.get_variable_names():
             LOG.debug("Adding variable name: %s."%(variable_name))
             if variable_name == "lat":
-                items_to_print.append(self.nc.variables['lat'][lat_index])
+                variable_value = self.nc.variables[variable_name][lat_index]
             elif variable_name == "lon":
-                items_to_print.append(self.nc.variables['lon'][lon_index])
+                variable_value = self.nc.variables[variable_name][lon_index]
             elif variable_name == "time":
                 # The time variable is seconds since 1981-01-01.
                 start_date = datetime.datetime(1981, 1, 1)
-                items_to_print.append((start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0]))))
+                variable_value = start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0]))
             else:
-                variable = self.nc.variables[variable_name][0][lat_index][lon_index]
-                if hasattr(variable, "mask"):
-                    if variable.mask:
-                        one_of_the_values_are_missing = True
-                items_to_print.append(variable)
+                variable_value = self.nc.variables[variable_name][0][lat_index][lon_index]
+            # Append the value to the datapoint.
+            data_point.append(variable_name, variable_value)
 
-        LOG.debug("Checking if any of the values are missing.")
-        if one_of_the_values_are_missing:
-            LOG.debug("Checking if we are to print the values or not even if one of the values are missing.")
-            if ignore_if_missing:
-                LOG.debug("Returning None because one fo the values were missing.")
-                return None
-
-        # There were no missing values or we will return it after all...
-        LOG.debug("Converting all items to string")
-        items_to_print = map(lambda x: str(x), items_to_print)
-
-        # Returning the items list.
-        LOG.debug("Items to string: %s"%(items_to_print))
-        return items_to_print
+        # All values has been inserted. Return the point.
+        return data_point
 
     def get_lat_lon_ranges(self):
         """
