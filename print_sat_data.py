@@ -159,9 +159,9 @@ if __name__ == "__main__":
                 assert(sat.variables_is_in_file(list(variables_to_print)))
                 print "# %s"%(" ".join(variables_to_print))
 
-                values = sat.get_values(args.lat, args.lon, variables_to_print, ignore_if_missing=args.ignore_if_missing)
+                values = sat.data(args.lat, args.lon)
                 if values != None:
-                    print " ".join(values)
+                    print values.filter(variables_to_print, args.ignore_if_missing)
                 else:
                     print values
                 sys.exit()

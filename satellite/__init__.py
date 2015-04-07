@@ -92,7 +92,9 @@ class SatelliteDataPoint(object):
 
         # If the datapoint is actually filtered.
         if order != None:
-            if not isinstance(order, list):
+            LOG.debug("Order:")
+            LOG.debug(order)
+            if isinstance(order, str):
                 order = [order, ] 
             for key in order:
                 values.append(self.data[key])

@@ -111,7 +111,7 @@ class BuoyDataElement(object):
         string_elements = []
         if order != None:
             # The order must be a list. Se __doc__ above.
-            if not isinstance(order, list):
+            if isinstance(order, str):
                 order = [order,]
 
             if "date" in order:
