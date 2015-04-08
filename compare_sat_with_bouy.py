@@ -4,8 +4,9 @@ import logging
 import datetime
 import sys
 import os
-import satellite
-import buoy
+import libs.satellite
+import libs.buoy
+import libs.datetimehelper
 
 LOG = logging.getLogger(__name__)
 
@@ -93,10 +94,10 @@ if __name__ == "__main__":
 
     if args.print_buoy_names:
         print "Available buoy names for '%s':"%(os.path.abspath(args.data_dir_buoy))
-        print ", ".join(buoy.get_buoy_names(args.data_dir_buoy))
+        print ", ".join(libs.buoy.get_buoy_names(args.data_dir_buoy))
         sys.exit()
 
-    buoy_names = buoy.get_buoy_names(args.data_dir_buoy)
+    buoy_names = libs.buoy.get_buoy_names(args.data_dir_buoy)
     if args.buoy != None:
         if args.buoy not in buoy_names:
             raise argparse.ArgumentTypeError("'%s' can not be found. Please specify another buoy data dir (current: '%s') with --data-dir-buoy, or select one of the buoy names: '%s'!"%(args.buoy, args.data_dir_buoy, "', '".join(buoy_names)))
@@ -121,7 +122,7 @@ if __name__ == "__main__":
             # Date is set to five days back in time.
             args.date_to = args.date - datetime.timedelta(days = 5)
 
-        sat_input_filenames = list(satellite.get_files_from_datadir(args.data_dir_sat, args.date, args.date_to))
+        sat_input_filenames = list(libs.satellite.get_files_from_datadir(args.data_dir_sat, args.date, args.date_to))
 
     if len(sat_input_filenames) == 0:
         print "No satellite files to get data from. Please specify another date (--date) or date range (--date-from/--date-to)."
@@ -134,7 +135,7 @@ if __name__ == "__main__":
 
     try:
         for sat_input_filename in sat_input_filenames:
-            with satellite.Satellite(sat_input_filename) as sat:
+            with libs.satellite.Satellite(sat_input_filename) as sat:
                 assert(sat.has_variables(["lat", "lon"]))
 
                 # Make sure the satellite variables are there.
@@ -157,7 +158,7 @@ if __name__ == "__main__":
                 # Loop through the available buoys and write the output.
                 for buoy_name in buoy_names:
                     LOG.debug("Buoy short name: %s. Satellite date: %s."%(buoy_name, satellite_date))
-                    with buoy.Buoy(buoy_name, args.data_dir_buoy) as b:
+                    with libs.buoy.Buoy(buoy_name, args.data_dir_buoy) as b:
                         if args.filter != None: 
                             for f in args.filter[0]:
                                 if f.startswith("b:"):

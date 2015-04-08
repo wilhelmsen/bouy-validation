@@ -8,8 +8,6 @@ import satellite
 
 LOG = logging.getLogger(__name__)
 
-
-
 if __name__ == "__main__":
     try:
         import argparse
