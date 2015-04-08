@@ -99,7 +99,7 @@ class BuoyDataElement(object):
         if i != len(self.headers):
             raise BuoyException("The number of values in the data line, %i, does not match the number of header elements, %i."%(i, len(self.header)))
 
-    def filter(self, order=None):
+    def filter(self, order=None, date_format=DEFAULT_DATE_FORMAT):
         """
         A filter is applied to the data when printing it.
 
@@ -120,12 +120,19 @@ class BuoyDataElement(object):
             for header_type, header_value in [x.split(":") for x in order]:
                 LOG.debug("%s %s"%(header_type, header_value))
                 if header_type == "date":
-                    string_elements.append("%s"%self.date.strftime(DEFAULT_DATE_FORMAT))
+                    if date_format == "julian":
+                        pass
+                    else:
+                        string_elements.append("%s"%self.date.strftime(date_format))
                 else:
                     string_elements.append("%s"%self.__dict__[header_type][header_value])
         else:
             # No filter. Everything is printed.
-            string_elements.append(self.date.strftime(DEFAULT_DATE_FORMAT))
+            if date_format == "julian":
+                pass
+            else:
+                string_elements.append(self.date.strftime(date_format))
+
             for header in self.headers:
                 string_elements.append("%s"%self.__dict__[header.type][header.value])
 
