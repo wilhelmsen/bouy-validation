@@ -8,6 +8,28 @@ import satellite
 import buoy
 
 LOG = logging.getLogger(__name__)
+SECONDS_IN_A_DAY = 24*60*60.0
+JULIAN_DAY_EPOC = datetime.datetime(1950, 1, 1)
+
+def date2julian(date):
+    """
+    In this case the julian day is the number of days since 1950, 1, 1.
+    """
+    diff_date = (date - JULIAN_DAY_EPOC)
+    return diff_date.days + diff_date.seconds/SECONDS_IN_A_DAY
+
+def filename(date_from, date_to, buoy_name, depth, path=None):
+    # L4_valid_$Buoy_$depth_20150406_20150407_NSB_0.02.asc
+    filename = "L4_valid_{buoy}_{depth}_{date_from_including}_{date_to_excluding}_NSB_0.02.asc".format(
+        buoy=buoy_name,
+        depth=depth,
+        date_from_including=date_from.strftime("%Y%d%m"),
+        date_to_excluding=date_to.strftime("%Y%d%m")
+        )
+    if path != None:
+        filename = os.path.join(path, filename)
+    return os.path.abspath(filename)
+
 
 
 if __name__ == "__main__":
@@ -26,15 +48,22 @@ if __name__ == "__main__":
             raise argparse.ArgumentTypeError("'%s' does not exist. Please specify input file!"%(path))
         return path
 
-    parser = argparse.ArgumentParser(description='Compare the satellite data with the buoy data.')
-    parser.add_argument("buoy", type=str, help="Buoy short name. Can be found by calling script with option --print-buoy-names.")
+    def filter(filter_element):
+        if filter_element.startswith("s:") or filter_element.startswith("b:"):
+            return filter_element
+        raise argparse.ArgumentTypeError("Filter element, '%s', must start with 's:' or 'b:'.")
+
+    parser = argparse.ArgumentParser(description='Compare the satellite data with the buoy data. For each file of satellite data, the specified buoy data is found. Each line in the buoy data is compared with the satellite.')
 
     parser.add_argument('--data-dir-sat', type=directory, help='Specify the directory where the satellite data files can be found.', default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sat"))
     parser.add_argument('--data-dir-buoy', type=directory, help='Specify the directory where the buoy data files can be found.', default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "buoy"))
 
     parser.add_argument('--print-buoy-names', action='store_true', help="Print available buoy snort names to use with --buoy.")
+    parser.add_argument('-b', '--buoy', type=str, help="Buoy short name. Can be found by calling script with option --print-buoy-names. This is actually a required option, even though an option should be optional, by definition.")
 
-    parser.add_argument('-f', '--filter', action="append", nargs="*", help="Only return a string with some of the values.")
+
+    parser.add_argument('--print-header', action='store_true', help="Print the header when writing the output.")
+    parser.add_argument('-f', '--filter', type=filter, action="append", nargs="*", help="""Only return a string with some of the values. Example: 's:lat b:WT:2 s:lon b:date:'. 's' is the satellite prefix and 'b' is the buoy prefix. 2 values for each satellite filter element, and 3 values for each buoy filter element.""")
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-d', '--debug', action='store_true', help="Output debugging information.")
@@ -53,6 +82,9 @@ if __name__ == "__main__":
     group.add_argument('--days-forward-in-time', type=int, help='Only print data from --date or --date-from and this number of days forward in time.')
 
     parser.add_argument("--ignore-if-missing", action="store_true", help="Add this option to print the values only if there are NO missing values for the specified lat/lon values.")
+
+    parser.add_argument('-o', '--output-filename', type=file, help="Output filename. If not given, a filename will be created.")
+
      
     # Do the parsing.
     args = parser.parse_args()
@@ -69,7 +101,7 @@ if __name__ == "__main__":
     LOG.debug(args)
 
     if args.print_buoy_names:
-        print "Available buoy names:"
+        print "Available buoy names for '%s':"%(os.path.abspath(args.data_dir_buoy))
         print ", ".join(buoy.get_buoy_names(args.data_dir_buoy))
         sys.exit()
 
@@ -78,7 +110,8 @@ if __name__ == "__main__":
         if args.buoy not in buoy_names:
             raise argparse.ArgumentTypeError("'%s' can not be found. Please specify another buoy data dir (current: '%s') with --data-dir-buoy, or select one of the buoy names: '%s'!"%(args.buoy, args.data_dir_buoy, "', '".join(buoy_names)))
         buoy_names = [args.buoy,]
-    
+    else:
+        raise argparse.ArgumentTypeError("Please ")    
 
     if args.sat_input_filename:
         sat_input_filenames = [args.sat_input_filename,]
@@ -111,63 +144,81 @@ if __name__ == "__main__":
     try:
         for sat_input_filename in sat_input_filenames:
             with satellite.Satellite(sat_input_filename) as sat:
-                assert(sat.variables_is_in_file(["lat", "lon"]))
+                assert(sat.has_variables(["lat", "lon"]))
+
+                # Make sure the satellite variables are there.
+                if args.filter != None:
+                    for f in args.filter[0]:
+                        if f.startswith("s:"):
+                            dummy, sat_filter = f.split(":", 1)
+                            if not sat.has_variables(sat_filter):
+                                raise argparse.ArgumentTypeError("'%s' cannot be found for satellite data. Must be one of '%s'."%(sat_filter, "', '".join(sat.get_variable_names())))
+                                
+
+                # Get the date from the satellite file.
                 LOG.debug("Satellite intput filename: %s"%(sat_input_filename))
                 satellite_date = sat.get_date()
 
+                # Calculate the valid time period for the file.
                 date_from_including = satellite_date - datetime.timedelta(hours=12)
                 date_to_excluding = satellite_date + datetime.timedelta(hours=12)
 
+                # Loop through the available buoys and write the output.
                 for buoy_name in buoy_names:
                     LOG.debug("Buoy short name: %s. Satellite date: %s."%(buoy_name, satellite_date))
-                    b = buoy.Buoy(buoy_name, args.data_dir_buoy)
-
-                    sat_data = sat.data(b.lat, b.lon)
-                    # sat_values = get_values(lat, lon, variables_to_print=None, ignore_if_missing=False)
-                    # import pdb; pdb.set_trace()
-                    for buoy_data in b.data(date_from_including, date_to_excluding):
-                        if args.filter == None:
-                            print buoy_data, sat_data
-                        else:
-                            output = []
+                    with buoy.Buoy(buoy_name, args.data_dir_buoy) as b:
+                        if args.filter != None: 
                             for f in args.filter[0]:
-                                LOG.debug("FILTER:")
-                                LOG.debug(f)
-                                LOG.debug("Satellite data:")
-                                LOG.debug(sat_data)
+                                if f.startswith("b:"):
+                                    dummy, buoy_filter = f.split(":", 1)
+                                    if not b.has_variables(buoy_filter):
+                                        raise argparse.ArgumentTypeError("'%s' cannot be found for buoy '%s' ('%s'). Must be one of '%s'."%(buoy_filter, b.name, b.short_name, "', '".join(b.get_header_strings())))
+
+
+                        # Print the header.
+                        if args.print_header:
+                            # Create the header.
+                            if args.filter != None:
+                                header = " ".join(args.filter[0])
+                            else:
+                                header = "b:%s s:%s"%(" b:".join(b.get_header_strings()), " s:".join(sat.get_variable_names()))
+
+                            # Make the output.
+                            if args.output_filename:
+                                with open(args.output_filename, 'w') as fp:
+                                    fp.write(header)
+                            else:
+                                print header
                                 
-                                filter_type, filter_value = f.split(":", 1)
-                                if filter_type == "s":
-                                    output.append(sat_data.filter(filter_value))
-                                elif filter_type == "b":
-                                    output.append(buoy_data.filter(filter_value))
-                                
-                        print " ".join(output)
-            sys.exit(1)
+                        # Selecting the satellite data from the buoy lat/lon values.
+                        sat_data = sat.data(b.lat, b.lon)
 
-            # Filtering.
-            # It was not really possible to create a default filter with argparse. The new filter variables were inserted
-            # into a new list, alongside the default list.
-            variables_to_print = []
-            variables_to_print = satellite.get_variable_names(sat_input_filename)
-            variables_to_print = ["s:%s"%x for x in variables_to_print]
-            # Just make sure the filter variable is a list, and not a str, e.g.
-            assert(isinstance(args.filter, list))
-            variables_to_print = args.filter[0]
+                        # Looping over buoy data that correspond to the satellite data.
+                        for buoy_data in b.data(date_from_including, date_to_excluding):
+                            # If the data is not filtered, just write erything.
+                            if args.filter == None:
+                                output = "%s %s"%(buoy_data, sat_data)
+                            else:
+                                output_parts = []
+                                for f in args.filter[0]:
+                                    LOG.debug("FILTER: %s"%(f))
+                                    filter_type, filter_value = f.split(":", 1)
+                                    if filter_type == "s":
+                                        output_parts.append(sat_data.filter(filter_value))
+                                    elif filter_type == "b":
+                                        output_parts.append(buoy_data.filter(filter_value))
+                                output = " ".join(output_parts)
 
-            # Printing the header.
-            assert(satellite.variables_is_in_file(list(variables_to_print), sat_input_filename))
-            print "# %s"%(" ".join(variables_to_print))
+                            # Output the content...
+                            if args.output_filename:
+                                # ...to file.
+                                with open(args.output_filename, 'w') as fp:
+                                    fp.write(output)
+                            else:
+                                # ...to screen.
+                                print output
 
-            values = satellite.get_values(sat_input_filename, args.lat, args.lon, variables_to_print, ignore_if_missing=args.ignore_if_missing)
-            if values != None:
-                print " ".join(values)
-            else:
-                print values
-            sys.exit()
-                
-
-
+    # If something went wrong.
     except argparse.ArgumentTypeError, e:
         print("")
         print("Error: %s"%(e.message))

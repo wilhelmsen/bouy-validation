@@ -21,10 +21,10 @@ if __name__ == "__main__":
         # argparse.ArgumentTypeError()
         return datetime.datetime.strptime( date_string, '%Y-%m-%d' )
 
-    def directory( dir_path ):
-        if not os.path.isdir( dir_path ):
-            raise argparse.ArgumentTypeError( "'%s' does not exist. Please specify save directory!"%(dir_path))
-        return dir_path
+    def directory(path):
+        if not os.path.isdir(path):
+            raise argparse.ArgumentTypeError( "'%s' does not exist. Please specify save directory!"%(path))
+        return path
 
     parser = argparse.ArgumentParser(description='Some description. This script does this and that...')
     parser.add_argument('--data-dir', type=directory, help='Specify the directory where the data files can be found.',
@@ -51,11 +51,11 @@ if __name__ == "__main__":
 
     # Set the log options.
     if args.debug:
-        logging.basicConfig( filename=args.log_filename, level=logging.DEBUG )
+        logging.basicConfig(filename=args.log_filename, level=logging.DEBUG)
     elif args.verbose:
-        logging.basicConfig( filename=args.log_filename, level=logging.INFO )
+        logging.basicConfig(filename=args.log_filename, level=logging.INFO)
     else:
-        logging.basicConfig( filename=args.log_filename, level=logging.WARNING )
+        logging.basicConfig(filename=args.log_filename, level=logging.WARNING)
 
     # Output what is in the args variable.
     LOG.debug(args)

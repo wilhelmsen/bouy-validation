@@ -193,6 +193,30 @@ class Buoy:
 
         LOG.debug("Number of header elements: %i"%len(self.headers))
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        pass
+
+    def has_variables(self, required_variables):
+        """
+        Makes sure that the variables in the "required_variables"
+        can actually be found in the file.
+        """
+        if isinstance(required_variables, str):
+            required_variables = (required_variables,)
+
+        LOG.debug("Required variables: %s"%(required_variables))
+        for required_variable in required_variables:
+            LOG.debug("Checking variable if '%s' is in '%s'"%(required_variable, "', '".join(self.get_header_strings())))
+            if required_variable not in self.get_header_strings():
+                LOG.warning("The buoy, '%s', must have the variable (filter) '%s'."%(self.name, required_variable))
+                LOG.warning("Available variables (filters) for buoy '%s' are: '%s'."%(self.name, "', '".join(self.get_header_strings())))
+                return False
+        return True
+
+
     def get_header_strings(self):
         header_strings = ["%s:%s"%(header.type, header.value) for header in self.headers]
         # The first element is allways a string.

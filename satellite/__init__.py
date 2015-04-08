@@ -127,13 +127,14 @@ class Satellite(object):
     def get_date(self):
         return _get_date_from_filename(self.input_filename)
 
-    def variables_is_in_file(self, required_variables):
+    def has_variables(self, required_variables):
         """
         Makes sure that the variables in the "required_variables"
         can actually be found in the file.
         """
         LOG.debug("Required variables: %s"%(required_variables))
-        assert(isinstance(required_variables, list))
+        if isinstance(required_variables, str):
+            required_variables = (required_variables,)
 
         variable_names = self.get_variable_names()
         for required_variable in required_variables:
@@ -206,7 +207,7 @@ class Satellite(object):
             elif variable_name == "time":
                 # The time variable is seconds since 1981-01-01.
                 start_date = datetime.datetime(1981, 1, 1)
-                variable_value = start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0]))
+                variable_value = (start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0]))).strftime("%Y%m%d%H%M")
             else:
                 variable_value = self.nc.variables[variable_name][0][lat_index][lon_index]
             # Append the value to the datapoint.
