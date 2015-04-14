@@ -4,16 +4,16 @@ import datetime
 import numpy as np
 import netCDF4
 import os
+import datetimehelper
+import filterhelper
 
 # Define the logger
 LOG = logging.getLogger(__name__)
-DATE_FORMAT = "%Y%m%d%H%M%S"
-
 class SatDataException(Exception):
     pass
 
 
-def get_files_from_datadir(data_dir, date_from, date_to):
+def get_files_from_datadir(data_dir, date_from_including, date_to_excluding):
     """
     Getting the files from the data dir.
     It does a walk through the data dir and finds files that
@@ -22,16 +22,16 @@ def get_files_from_datadir(data_dir, date_from, date_to):
     - Ends with .nc
     """
     LOG.debug("Data dir: '%s'"%data_dir)
-    LOG.debug("Date from: '%s'."%date_from)
-    LOG.debug("Date to: '%s'."%date_to)
+    LOG.debug("Date from: '%s'."%date_from_including)
+    LOG.debug("Date to: '%s'."%date_to_excluding)
 
     # Make sure that date_from allways is before date_to.
     # Be aware of that this must be done in one step. If not a temp variable is needed.
-    date_from, date_to = min(date_from, date_to), max(date_from, date_to)
+    date_from_including, date_to_excluding = min(date_from_including, date_to_excluding), max(date_from_including, date_to_excluding)
 
     LOG.debug("Dates after min/max:")
-    LOG.debug("Date from: '%s'."%date_from)
-    LOG.debug("Date to: '%s'."%date_to)
+    LOG.debug("Date from (including): '%s'."%date_from_including)
+    LOG.debug("Date to: '%s'."%date_to_excluding)
 
     for root, dirs, files in os.walk(data_dir):
         LOG.debug("Looking for files in '%s'."%(os.path.abspath(root)))
@@ -41,7 +41,7 @@ def get_files_from_datadir(data_dir, date_from, date_to):
         for filename in [f for f in files
                          if f.endswith(".nc")
                          and "-DMI-L4" in f
-                         and date_from <= _get_date_from_filename(f) <= date_to]:
+                         and date_from_including <= _get_date_from_filename(f) < date_to_excluding]:
             abs_filename = os.path.abspath(os.path.join(root, filename))
             LOG.debug("Found file '%s'."%(abs_filename))
             yield abs_filename
@@ -62,7 +62,8 @@ def get_available_dates(data_dir):
 
 
 def _get_date_from_filename(filename):
-    return datetime.datetime.strptime(os.path.basename(filename).split("-")[0], DATE_FORMAT)
+    FILENAME_DATE_FORMAT = "%Y%m%d%H%M%S"
+    return datetime.datetime.strptime(os.path.basename(filename).split("-")[0], FILENAME_DATE_FORMAT)
 
 class SatelliteDataPoint(object):
     def __init__(self):
@@ -97,15 +98,33 @@ class SatelliteDataPoint(object):
             if isinstance(order, str):
                 order = [order, ] 
             for key in order:
-                values.append(self.data[key])
+                if ":" in key:
+                    key, extra_filter_option = key.split(":", 1)
+                if key == "time":
+                    if extra_filter_option == "julian":
+                        values.append(datetimehelper.date2julian(self.data[key]))
+                    elif extra_filter_option != "":
+                        values.append(self.data[key].strftime(extra_filter_option))
+                    else:
+                        values.append(self.data[key].strftime(datetimehelper.DEFAULT_DATE_FORMAT_MIN))
+                elif key == "dummy":
+                    values.append(extra_filter_option)
+                else:
+                    values.append(self.data[key])
 
         # No filtering. All data is written.
         else:
-            values =  self.data.values()
+            for key in self.data:
+                if key == "time":
+                    values.append(self.data[key].strftime(datetimehelper.DEFAULT_DATE_FORMAT_MIN))
+                else:
+                    values.append((self.data[key]))
 
-        values = {str(value) for value in values}
         # Return a string with all the values.
-        return " ".join(values)
+        output = ""
+        for value in values:
+            output += filterhelper.format(value)
+        return output
 
     def __str__(self):
         return self.filter()
@@ -207,7 +226,9 @@ class Satellite(object):
             elif variable_name == "time":
                 # The time variable is seconds since 1981-01-01.
                 start_date = datetime.datetime(1981, 1, 1)
-                variable_value = (start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0]))).strftime("%Y%m%d%H%M")
+                variable_value = (start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0])))
+            elif variable_name == "analysed_sst":
+                variable_value = float(self.nc.variables[variable_name][0][lat_index][lon_index]) - 273.15
             else:
                 variable_value = self.nc.variables[variable_name][0][lat_index][lon_index]
             # Append the value to the datapoint.

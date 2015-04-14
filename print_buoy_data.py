@@ -6,7 +6,7 @@ LOG = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     import sys
-    import buoy
+    import libs.buoy
     import os
     import datetime
     try:
@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Some description. This script does this and that...')
     parser.add_argument('--data-dir', type=directory, help='Specify the directory where the data files can be found.',
-                        default=buoy.DEFAULT_DATA_DIR)
+                        default=libs.buoy.DEFAULT_DATA_DIR)
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--print-buoy-names', action='store_true', help='Prints the name of the available buoys for a given data dir.')
@@ -65,11 +65,11 @@ if __name__ == "__main__":
             raise argparse.ArgumentTypeError("Missing data directory: '%s'."%(args.data_dir))
 
         if args.print_buoy_names:
-            print "'%s'."%"', '".join(buoy.get_buoy_names(args.data_dir))
+            print "'%s'."%"', '".join(libs.buoy.get_buoy_names(args.data_dir))
             sys.exit()
 
         # Get all the buoy names from the data directory.
-        buoy_names = buoy.get_buoy_names(args.data_dir)
+        buoy_names = libs.buoy.get_buoy_names(args.data_dir)
         if buoy_names == None or len(buoy_names) == 0:
             # If there were no data in the data directory stop here.
             raise argparse.ArgumentTypeError("No data. Please specify a data dir with data. Default: %s"%(args.data_dir))
@@ -78,7 +78,7 @@ if __name__ == "__main__":
         if args.print_header:
             if args.buoy == None or args.buoy not in buoy_names:
                 raise argparse.ArgumentTypeError("Buoy name must be specifired with option -b when printing header: Available for buoy names: '%s'. Example: '-b %s'."%("', '".join(buoy_names), iter(buoy_names).next()))
-            buoy = buoy.buoy_factory(args.buoy)
+            buoy = libs.buoy.buoy_factory(args.buoy)
 
             # The header strings. The first header i all the files is the date.
             header_strings = buoy.get_header_strings()
@@ -93,11 +93,11 @@ if __name__ == "__main__":
             # Select only one buoy.
             if args.buoy not in buoy_names:
                 raise argparse.ArgumentTypeError("'%s' must be one of '%s'!"%(args.buoy, "', '".join(buoy.get_buoy_names(args.data_dir))))
-            buoys.append(buoy.buoy_factory(args.buoy))
+            buoys.append(libs.buoy.buoy_factory(args.buoy))
         else:
             # Select all available buoys
             for buoy_name in buoy_names:
-                buoys.append(buoy.buoy_factory(buoy_name))
+                buoys.append(libs.buoy.buoy_factory(buoy_name))
     
         ## Filtering.
         # It was not really possible to create a default filter with argparse. The new filter variables were inserted

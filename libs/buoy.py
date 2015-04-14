@@ -4,13 +4,14 @@ import glob
 import logging
 import datetime
 import re
+import datetimehelper
+import filterhelper
 
 # Define the logger
 LOG = logging.getLogger(__name__)
 
 # 
 DEFAULT_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "buoy")
-DEFAULT_DATE_FORMAT = "%Y%m%d%H%M"
 DEFAULT_MISSING_VALUE = -99.0
 
 class BuoyException(Exception):
@@ -61,13 +62,15 @@ class BuoyHeaderElement(object):
         self.value, self.type = line.split()
 
 class BuoyDataElement(object):
-    def __init__(self, line, headers):
+    def __init__(self, line, headers, lat, lon):
         """
         The BuoyDataElement. The data from the <buoy_short_name>.dat file will be read
         in to this element. The headers must be a list of BuoyHeaderElements that describes
         what is being read from the line, i.e. what is read from the <buoy_short_name>.dat_head.dat file.
         """
         self.headers = headers
+        self.lat = lat
+        self.lon = lon
 
         LOG.debug(line.strip())
         line_parts = line.split()
@@ -80,7 +83,7 @@ class BuoyDataElement(object):
         LOG.debug("Dict after headers prepeared: %s"%(self.__dict__))
 
         # The first element in every line is the date.
-        self.date = datetime.datetime.strptime(line_parts[0], DEFAULT_DATE_FORMAT)
+        self.date = datetime.datetime.strptime(line_parts[0], "%Y%m%d%H%M")
         line_parts = line_parts[1:]
 
         # As the values are not space separated, some of the values can be contracted into one
@@ -99,7 +102,7 @@ class BuoyDataElement(object):
         if i != len(self.headers):
             raise BuoyException("The number of values in the data line, %i, does not match the number of header elements, %i."%(i, len(self.header)))
 
-    def filter(self, order=None, date_format=DEFAULT_DATE_FORMAT):
+    def filter(self, order=None, ):
         """
         A filter is applied to the data when printing it.
 
@@ -108,7 +111,7 @@ class BuoyDataElement(object):
         with one value, "WT:3".
         """
         LOG.debug("Order: '%s'."%(order))
-        string_elements = []
+        values = []
         if order != None:
             # The order must be a list. Se __doc__ above.
             if isinstance(order, str):
@@ -117,27 +120,41 @@ class BuoyDataElement(object):
             if "date" in order:
                 order[order.index("date")] = "date:"
 
+            if "lat" in order:
+                order[order.index("lat")] = "lat:"
+
+            if "lon" in order:
+                order[order.index("lon")] = "lon:"
+
             for header_type, header_value in [x.split(":") for x in order]:
-                LOG.debug("%s %s"%(header_type, header_value))
+                LOG.debug("'%s' '%s'."%(header_type, header_value))
                 if header_type == "date":
-                    if date_format == "julian":
-                        pass
+                    if header_value == "julian":
+                        values.append(datetimehelper.date2julian(self.date))
+                    elif header_value != "":
+                        values.append(self.date.strftime(header_value))
                     else:
-                        string_elements.append("%s"%self.date.strftime(date_format))
+                        values.append(self.date.strftime(datetimehelper.DEFAULT_DATE_FORMAT_MIN))
+                elif header_type == "lat":
+                    values.append(self.lat)
+                elif header_type == "lon":
+                    values.append(self.lon)
+                elif header_type == "dummy":
+                    values.append(header_value)
                 else:
-                    string_elements.append("%s"%self.__dict__[header_type][header_value])
+                    values.append(self.__dict__[header_type][header_value])
         else:
             # No filter. Everything is printed.
-            if date_format == "julian":
-                pass
-            else:
-                string_elements.append(self.date.strftime(date_format))
+            values.append(self.date.strftime(datetimehelper.DEFAULT_DATE_FORMAT_MIN))
 
             for header in self.headers:
-                string_elements.append("%s"%self.__dict__[header.type][header.value])
+                values.append(self.__dict__[header.type][header.value])
 
-        # Return the values as a string.
-        return " ".join(string_elements)
+        # Create a formatted string. 8 numbers for each string element.
+        output = ""
+        for value in values:
+            output += filterhelper.format(value)
+        return output
 
     def __str__(self):
         return "%s"%self.filter()
@@ -228,6 +245,8 @@ class Buoy:
         header_strings = ["%s:%s"%(header.type, header.value) for header in self.headers]
         # The first element is allways a string.
         header_strings.insert(0, "date:")
+        header_strings.insert(0, "lat:")
+        header_strings.insert(0, "lon:")
         return header_strings
 
     def data(self, date_from_including=None, date_to_excluding=None):
@@ -246,16 +265,16 @@ class Buoy:
         with open(self.data_file) as fp:
             for line in fp:
                 # Read in the data from the line.
-                b = BuoyDataElement(line, self.headers)
-
+                b = BuoyDataElement(line, self.headers, self.lat, self.lon)
+                
                 # No need to continue if the data date is outside interval.
                 #
                 # Make sure the data date is larger than (or equal to) date from.
-                if date_from_including != None and date_from_including >= b.date:
+                if date_from_including != None and b.date < date_from_including:
                     continue
 
                 # Make sure the data date is smaller than date to.
-                if date_to_excluding != None and date_to_excluding < b.date:
+                if date_to_excluding != None and b.date >= date_to_excluding:
                     continue
 
                 # Return the buoy object.

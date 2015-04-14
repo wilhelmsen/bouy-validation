@@ -4,9 +4,28 @@ import logging
 import datetime
 import sys
 import os
-import satellite
+import libs.satellite
 
 LOG = logging.getLogger(__name__)
+
+def get_available_date_strings(data_dir):
+        assert(os.path.isdir(data_dir))
+        date_strings = [date.strftime("%Y-%m-%d") for date in libs.satellite.get_available_dates(data_dir)]
+        date_strings.sort()
+        LOG.info("Available dates:")
+        return date_strings
+
+def pick_any_file(data_dir):
+    # There are no satellite files before this date. :)
+    date_from_including = datetime.datetime(1900, 1, 1)
+    
+    # Probably no files from tomorrow today?
+    date_to_excluding = datetime.datetime.now() + datetime.timedelta(days=1)
+        
+    # Just pick the first file (it's a generator).
+    return libs.satellite.get_files_from_datadir(data_dir, date_from_including, date_to_excluding).next()
+
+
 
 if __name__ == "__main__":
     try:
@@ -74,6 +93,14 @@ if __name__ == "__main__":
     # Output what is in the args variable.
     LOG.debug(args)
 
+    # Print the dates availabe by filenames (in the datadir).
+    if args.print_dates:
+        for date_string in get_available_date_strings(args.data_dir):
+            print date_string
+        sys.exit()
+
+    # Either a input file has been specified,
+    # or it is determined by the date values.
     if args.input_filename:
         input_files = [args.input_filename,]
     else:
@@ -91,47 +118,59 @@ if __name__ == "__main__":
             # Date is set one day forward.
             args.date_to = args.date + datetime.timedelta(days = 1)
 
-        input_files = list(satellite.get_files_from_datadir(args.data_dir, args.date, args.date_to))
+        LOG.debug("Data dir: %s. Date from: %s. Date to: %s"%(args.data_dir, args.date, args.date_to))
+        input_files = list(libs.satellite.get_files_from_datadir(args.data_dir, args.date, args.date_to))
 
+    # Print the varialbes.
+    if args.print_variables:
+        if len(input_files) == 0:
+            # If the dates have not been specified, then there may be that there are no files to
+            # pick the variables from, as the dates have default values.
+            # Then just pick a file from the data dir and print the variables for that file.
+            input_filename = pick_any_file(args.data_dir)
+        else:
+            input_filename = input_files[-1]
+
+        LOG.info("Available variables for %s:"%(input_filename))
+        with libs.satellite.Satellite(input_filename) as sat:
+            variable_names = sat.get_variable_names()
+        print "'%s'"%("', '".join(variable_names))
+        sys.exit()
+
+    # Print lat/lon ranges.
+    if args.print_lat_lon_ranges:
+        if len(input_files) == 0:
+            input_filename = pick_any_file(args.data_dir)
+        else:
+            input_filename = input_files[-1]
+
+        with libs.satellite.Satellite(input_filename) as sat:
+            lats, lons = sat.get_lat_lon_ranges()
+        LOG.info("")
+        LOG.info("Filename: '%s'"%(input_filename))
+        print "Lats: %s"%(" - ".join([str(lat) for lat in lats]))
+        print "Lons: %s"%(" - ".join([str(lon) for lon in lons]))
+        sys.exit()
+
+
+    # In the case that there still are no files,
+    # print the available dates, where there are some files.
     if len(input_files) == 0:
         print "No files to get data from. Please specify another date (--date) or date range (--date-from/--date-to)."
+        if args.date:
+            print "Date from: '%s'."%(args.date.date()) 
+        if args.date:
+            print "Date to: '%s'."%(args.date_to.date())
+        print ""
         print "Use --help for details."
         print ""
+        print "'%s'"%("', '".join(get_available_date_strings(args.data_dir)))
+        print ""
         print "Data dir: '%s'."%(os.path.abspath(args.data_dir))
+        sys.exit(1)
 
     LOG.debug("Date from: %s. Date to: %s."%(args.date, args.date_to))
-
     try:
-        # Print the dates availabe by filenames (in the datadir).
-        if args.print_dates or len(input_files) == 0:
-            assert(os.path.isdir(args.data_dir))
-            date_strings = [date.strftime("%Y-%m-%d") for date in satellite.get_available_dates(args.data_dir)]
-            date_strings.sort()
-            print "Available dates:"
-            print ", ".join(date_strings)
-            if len(input_files) == 0:
-                sys.exit(1)
-            sys.exit()
-
-        # print lat/lon ranges.
-        if args.print_lat_lon_ranges:
-            for input_filename in input_files:
-                with satellite.Satellite(input_filename) as sat:
-                    lats, lons = sat.get_lat_lon_ranges()
-                print ""
-                print "Filename: '%s'"%(input_filename)
-                print "Lats: %s"%(" - ".join([str(lat) for lat in lats]))
-                print "Lons: %s"%(" - ".join([str(lon) for lon in lons]))
-            sys.exit()
-
-        # Print variable names.
-        if args.print_variables:
-            for input_filename in input_files:
-                with satellite.Satellite(input_filename) as sat:
-                    variable_names = sat.get_variable_names()
-                print "Available variables for %s:"%(input_filename)
-                print "'%s'"%("', '".join(variable_names))
-                sys.exit()
 
 
         if args.lat == None or args.lon == None:
@@ -139,8 +178,8 @@ if __name__ == "__main__":
 
         # Print the values.
         for input_filename in input_files:
-            with satellite.Satellite(input_filename) as sat:
-                assert(sat.variables_is_in_file(["lat", "lon"]))
+            with libs.satellite.Satellite(input_filename) as sat:
+                assert(sat.has_variables(["lat", "lon"]))
 
                 # Filtering.
                 # It was not really possible to create a default filter with argparse. The new filter variables were inserted
@@ -154,7 +193,7 @@ if __name__ == "__main__":
                     assert(isinstance(args.filter, list))
                     variables_to_print = args.filter[0]
 
-                assert(sat.variables_is_in_file(list(variables_to_print)))
+                assert(sat.has_variables(list(variables_to_print)))
                 print "# %s"%(" ".join(variables_to_print))
 
                 values = sat.data(args.lat, args.lon)
