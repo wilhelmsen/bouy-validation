@@ -1,3 +1,4 @@
+# coding: utf-8
 import datetime
 
 SECONDS_IN_A_DAY = 24*60*60.0

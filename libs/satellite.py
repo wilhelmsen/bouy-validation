@@ -2,16 +2,20 @@
 import logging
 import datetime
 import numpy as np
+import numpy.ma as ma
 import netCDF4
 import os
 import datetimehelper
 import filterhelper
+import coordinatehelper
+import math
 
 # Define the logger
 LOG = logging.getLogger(__name__)
+ZERO_CELCIUS_IN_KELVIN = 273.15
+
 class SatDataException(Exception):
     pass
-
 
 def get_files_from_datadir(data_dir, date_from_including, date_to_excluding):
     """
@@ -167,10 +171,9 @@ class Satellite(object):
         Gets the indexes for the specified lat/lon values.
         
         E.g. analysed_sst is a grid. The indexes correspond to (time, lat, lon).
-        Time is only one dimension in our files, so we need the lat / lon indexes.
+        Time is only one dimension in the files, so we need the lat / lon indexes.
         
-        TODO:
-                         LON
+                          LON
         +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
         +-----+-----+-----+-----+-----+-----+ LAT
@@ -178,15 +181,11 @@ class Satellite(object):
         +-----+-----+-----+-----+-----+-----+
         
         The lat/lon points are the center values in the grid cell.
-        The edges are therefore not included below. Fix this by:
-        - adding grid_width/2 to the max lon values
-        - subtract grid_width/2 to the min lon valus
-        - adding grid_height/2 to the max lat values
-        - subtract grid_height/2 to the min lat valus
         """
+        # lat / lon extremes including the edges.
         lats, lons = self.get_lat_lon_ranges()
     
-        # TODO: Missing the edges!!
+        # Make sure the lat/lon values are within the ranges where there are data.
         # lat[0] - grid_cell_height/2, lat[1] + grid_cell_height/2
         if not lats[0] <= lat <= lats[1]:
             raise SatDataException("Latitude %s is outside latitude range %s."%(lat, " - ".join([str(l) for l in lats])))
@@ -195,8 +194,8 @@ class Satellite(object):
         if not lons[0] <= lon <= lons[1]:
             raise SatDataException("Longitude %s is outside longitude range %s."%(lon, " - ".join([str(l) for l in lons])))
 
-        lat_index = abs((self.nc.variables['lat'] - np.float32(lat))).argmin()
-        lon_index = abs((self.nc.variables['lon'] - np.float32(lon))).argmin()
+        lat_index = self.get_index_of_closest_float_value('lat', lat) 
+        lon_index = self.get_index_of_closest_float_value('lon', lon)
 
         LOG.debug("Lat index: %i. Lat: %f."%(lat_index, self.nc.variables['lat'][lat_index]))
         LOG.debug("Lon index: %i. Lon: %f."%(lon_index, self.nc.variables['lon'][lon_index]))
@@ -228,7 +227,9 @@ class Satellite(object):
                 start_date = datetime.datetime(1981, 1, 1)
                 variable_value = (start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0])))
             elif variable_name == "analysed_sst":
-                variable_value = float(self.nc.variables[variable_name][0][lat_index][lon_index]) - 273.15
+                variable_value = float(self.nc.variables[variable_name][0][lat_index][lon_index]) - ZERO_CELCIUS_IN_KELVIN
+            elif variable_name == "analysed_sst_smooth":
+                variable_value = self.get_analysed_sst_smooth(lat, lon) - ZERO_CELCIUS_IN_KELVIN
             else:
                 variable_value = self.nc.variables[variable_name][0][lat_index][lon_index]
             # Append the value to the datapoint.
@@ -237,18 +238,89 @@ class Satellite(object):
         # All values has been inserted. Return the point.
         return data_point
 
+    def get_lat_index(self, lat):
+        """
+        Gets the index of the closest lat value.
+        """
+        return get_index_of_closest_float_value("lat", lat)
+
+    def get_lon_index(self, lon):
+        """
+        Gets the index of the closest lon value.
+        """
+        return get_index_of_closest_float_value("lon", lon)
+
+    def get_index_of_closest_float_value(self, variable_name, value):
+        """
+        Gets the index of the closest float value.
+        """
+        return abs((self.nc.variables[variable_name] - np.float32(value))).argmin()
+
+    def get_analysed_sst_smooth(self, lat, lon, analysed_sst_smooth_radius_km=25):
+        """
+        Gets the average analysed_sst within a squared grid (km).
+
+
+                         LON
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+ LAT
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+
+        
+        """
+        delta_lat = coordinatehelper.km_2_lats(analysed_sst_smooth_radius_km)
+        delta_lon = coordinatehelper.km_2_lons(analysed_sst_smooth_radius_km, lat)
+
+        # Mask everything outside latitude interval.
+        lat_mask = (self.nc.variables['lat'][:] >= lat-delta_lat) & (self.nc.variables['lat'][:] <= lat+delta_lat)
+        lon_mask = (self.nc.variables['lon'][:] > lon-delta_lon) & (self.nc.variables['lon'][:] < lon+delta_lon)
+        
+        # Combine the lat mask with the lon mask.
+        lat_lon_mask = np.reshape([i&j for i in lat_mask for j in lon_mask], (len(lat_mask), len(lon_mask)))
+
+        # The values must be from water. That means that bit 1 must be set in the land/sea-mask.
+        # The result is an array with 1s and 0s. It is converted to an array of bools.
+        sea_mask = np.array(self.nc.variables['mask'][0] & 1, dtype=bool)
+
+        # The resulting mask. Both True values from lat_lon and True values from the land/sea mask.
+        resulting_mask = lat_lon_mask & sea_mask
+
+        # Get the values
+        data = self.nc.variables['analysed_sst'][0]
+
+        # Add the original mask.
+        data.mask = ~resulting_mask | data.mask
+        return data.mean()
+        
     def get_lat_lon_ranges(self):
         """
-        Getting the lat long ranges from a input file.
+        Getting the lat long ranges from a input file, including the extra area on the edges.
         
         Opens the file, reads the lat/lon arrays and finds the min/max values.
+                         LON
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+ LAT
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+
+        As the lat/lons are center values in the grid cells, the edges are added to the range.
         """
-        return [min(self.nc.variables['lat']), max(self.nc.variables['lat'])], [min(self.nc.variables['lon']), max(self.nc.variables['lon'])]
+        lat_edge = self.nc.geospatial_lat_resolution/2.0
+        lat_ranges = [min(self.nc.variables['lat']) - lat_edge,
+                      max(self.nc.variables['lat']) + lat_edge]
+
+        lon_edge = self.nc.geospatial_lon_resolution/2.0
+        lon_ranges = [min(self.nc.variables['lon']) - lon_edge,
+                      max(self.nc.variables['lon']) + lon_edge]
+
+        return lat_ranges, lon_ranges 
 
     def get_variable_names(self):
         """
         Gets the variable names in the file. That means the variables that can be read from the file.
         """
         LOG.debug("Getting variable names from %s"%self.input_filename)
-        return {str(var) for var in self.nc.variables}
-
+        variables = list(self.nc.variables)
+        variables.append("analysed_sst_smooth")
+        return {str(var) for var in variables}
