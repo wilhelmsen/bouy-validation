@@ -229,7 +229,9 @@ class Satellite(object):
             elif variable_name == "analysed_sst":
                 variable_value = float(self.nc.variables[variable_name][0][lat_index][lon_index]) - ZERO_CELCIUS_IN_KELVIN
             elif variable_name == "analysed_sst_smooth":
-                variable_value = self.get_analysed_sst_smooth(lat, lon) - ZERO_CELCIUS_IN_KELVIN
+                variable_value = self.calculate_analysed_sst_smooth(lat, lon) - ZERO_CELCIUS_IN_KELVIN
+            elif variable_name == "dist2ice":
+                variable_value = self.calculate_distance_to_ice(lat, lon)
             else:
                 variable_value = self.nc.variables[variable_name][0][lat_index][lon_index]
             # Append the value to the datapoint.
@@ -256,7 +258,7 @@ class Satellite(object):
         """
         return abs((self.nc.variables[variable_name] - np.float32(value))).argmin()
 
-    def get_analysed_sst_smooth(self, lat, lon, analysed_sst_smooth_radius_km=25):
+    def calculate_analysed_sst_smooth(self, lat, lon, analysed_sst_smooth_radius_km=25):
         """
         Gets the average analysed_sst within a squared grid (km).
 
@@ -292,6 +294,43 @@ class Satellite(object):
         # Add the original mask.
         data.mask = ~resulting_mask | data.mask
         return data.mean()
+
+    def calculate_distance_to_ice(self, lat, lon):
+        """
+        Finds the minimum distance to ice.
+
+
+                         LON
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+ LAT
+        |  x  |  x  |  x  |  x  |  x  |  x  |
+        +-----+-----+-----+-----+-----+-----+
+        
+        """
+            
+        
+        sea_ice_fraction_mask = self.nc.variables['sea_ice_fraction'][0] > 0.15
+
+        distances = np.empty(sea_ice_fraction_mask.shape)
+        distances.fill(10**10)        
+
+        for lat_idx in np.arange(len(self.nc.variables['lat'])):
+            if not sea_ice_fraction_mask[lat_idx].any():
+                continue
+
+            latitude = self.nc.variables['lat'][lat_idx]
+            y = coordinatehelper.lats_2_km(np.abs(latitude-lat))
+
+            for lon_idx in np.arange(len(self.nc.variables['lon'])):
+                if not sea_ice_fraction_mask[lat_idx][lon_idx]:
+                    continue
+
+                longitude = self.nc.variables['lon'][lon_idx]
+                x = coordinatehelper.lons_2_km(np.abs(longitude - lon), latitude)
+                distances[lat_idx][lon_idx] = np.sqrt(x**2 + y**2)
+
+        return distances.min()
         
     def get_lat_lon_ranges(self):
         """
@@ -323,4 +362,5 @@ class Satellite(object):
         LOG.debug("Getting variable names from %s"%self.input_filename)
         variables = list(self.nc.variables)
         variables.append("analysed_sst_smooth")
+        variables.append("dist2ice")
         return {str(var) for var in variables}
