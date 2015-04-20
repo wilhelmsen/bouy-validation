@@ -176,10 +176,12 @@ class Satellite(object):
                           LON
         +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
-        +-----+-----+-----+-----+-----+-----+ LAT
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  | LAT
+        +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
         +-----+-----+-----+-----+-----+-----+
-        
+
         The lat/lon points are the center values in the grid cell.
         """
         # lat / lon extremes including the edges.
@@ -220,18 +222,24 @@ class Satellite(object):
             LOG.debug("Adding variable name: %s."%(variable_name))
             if variable_name == "lat":
                 variable_value = self.nc.variables[variable_name][lat_index]
+
             elif variable_name == "lon":
                 variable_value = self.nc.variables[variable_name][lon_index]
+
             elif variable_name == "time":
                 # The time variable is seconds since 1981-01-01.
                 start_date = datetime.datetime(1981, 1, 1)
                 variable_value = (start_date + datetime.timedelta(seconds=int(self.nc.variables['time'][0])))
+
             elif variable_name == "analysed_sst":
                 variable_value = float(self.nc.variables[variable_name][0][lat_index][lon_index]) - ZERO_CELCIUS_IN_KELVIN
+
             elif variable_name == "analysed_sst_smooth":
                 variable_value = self.calculate_analysed_sst_smooth(lat, lon) - ZERO_CELCIUS_IN_KELVIN
+
             elif variable_name == "dist2ice":
                 variable_value = self.calculate_distance_to_ice(lat, lon)
+
             else:
                 variable_value = self.nc.variables[variable_name][0][lat_index][lon_index]
             # Append the value to the datapoint.
@@ -266,10 +274,12 @@ class Satellite(object):
                          LON
         +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
-        +-----+-----+-----+-----+-----+-----+ LAT
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  | LAT
+        +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
         +-----+-----+-----+-----+-----+-----+
-        
+
         """
         delta_lat = coordinatehelper.km_2_lats(analysed_sst_smooth_radius_km)
         delta_lon = coordinatehelper.km_2_lons(analysed_sst_smooth_radius_km, lat)
@@ -283,7 +293,7 @@ class Satellite(object):
 
         # The values must be from water. That means that bit 1 must be set in the land/sea-mask.
         # The result is an array with 1s and 0s. It is converted to an array of bools.
-        sea_mask = np.array(self.nc.variables['mask'][0] & 1, dtype=bool)
+        sea_mask = np.array((self.nc.variables['mask'][0] & 1), dtype=bool)
 
         # The resulting mask. Both True values from lat_lon and True values from the land/sea mask.
         resulting_mask = lat_lon_mask & sea_mask
@@ -295,54 +305,110 @@ class Satellite(object):
         data.mask = ~resulting_mask | data.mask
         return data.mean()
 
-    def calculate_distance_to_ice(self, lat, lon):
+
+    def calculate_distance_to_ice(self, lat, lon, output_ice_point_to_log_info=False):
         """
         Finds the minimum distance to ice.
-
 
                          LON
         +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
-        +-----+-----+-----+-----+-----+-----+ LAT
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  | LAT
+        +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
         +-----+-----+-----+-----+-----+-----+
-        
-        """
-            
-        
-        sea_ice_fraction_mask = self.nc.variables['sea_ice_fraction'][0] > 0.15
 
-        distances = np.empty(sea_ice_fraction_mask.shape)
-        distances.fill(10**10)        
+        """
+        MAX_DISTANCE_KM=500
+        NO_ICE_DISTANCE_KM=1000
+
+        MIN_SEA_ICE_FRACTION=0.15
+
+        LOG.debug("Icemask where sea ice fraction is > %f "%(MIN_SEA_ICE_FRACTION))
+        sea_ice_fraction_mask = self.nc.variables['sea_ice_fraction'][0] > MIN_SEA_ICE_FRACTION
+
+        LOG.debug("The sea mask: Where the first bit in the 'mask' variable (nc file) is set")
+        sea_mask = np.array((self.nc.variables['mask'][0] & 1), dtype=bool)
+
+        LOG.debug("Combine sea mask and sea ice fraction mask into sea ice mask.")
+        sea_ice_mask = sea_ice_fraction_mask & sea_mask
+
+        # Creating a matrix with very large values.
+        # This will be used to fill in the values distance values.
+        distances_km = np.empty(sea_ice_mask.shape)
+        distances_km.fill(MAX_DISTANCE_KM)
+        
+        if output_ice_point_to_log_info:
+            # For book keeping.
+            min_value = 500
+            min_lat = None
+            min_lon = None
 
         for lat_idx in np.arange(len(self.nc.variables['lat'])):
-            if not sea_ice_fraction_mask[lat_idx].any():
+            if not sea_ice_mask[lat_idx].any():
+                # If there are no ice in the sea for the current sea mask row,
+                # go to the next row.
                 continue
 
+            # There ice values for this sea mask row.
+            # Get the y component to the length to the latitude.
             latitude = self.nc.variables['lat'][lat_idx]
             y = coordinatehelper.lats_2_km(np.abs(latitude-lat))
 
+            # Run through every point in the row and check if there is
+            # any ice in that point.
             for lon_idx in np.arange(len(self.nc.variables['lon'])):
-                if not sea_ice_fraction_mask[lat_idx][lon_idx]:
+                # Is there ice in the point?
+                if not sea_ice_mask[lat_idx][lon_idx]:
+                    # No there were no ice.
                     continue
 
+                # Yes there were ice.
+                # Get the x component for the length to the ice point.
                 longitude = self.nc.variables['lon'][lon_idx]
                 x = coordinatehelper.lons_2_km(np.abs(longitude - lon), latitude)
-                distances[lat_idx][lon_idx] = np.sqrt(x**2 + y**2)
 
-        return distances.min()
-        
+                # Calculate the resulting distance.
+                distances_km[lat_idx][lon_idx] = np.sqrt(x**2 + y**2)
+
+                if output_ice_point_to_log_info and distances_km[lat_idx][lon_idx] < min_value:
+                    min_value = distances_km[lat_idx][lon_idx]
+                    min_lat = latitude
+                    min_lon = longitude
+
+        # The smallest distance to the ice.
+        min_distance_km = distances_km.min()
+
+        # Only when outputting the distance.
+        if output_ice_point_to_log_info:
+            LOG.info("dist2ice:(%s, %s) -> (%s, %s): %f km: "%(lat, lon, min_lat, min_lon, min_distance_km))
+
+        # If the minimum distance is greater than the allowed (500 km), 
+        # return a default value.
+        if min_distance_km > MAX_DISTANCE_KM:
+            LOG.debug("Returning default value: %s"%(NO_ICE_DISTANCE_KM))
+            return NO_ICE_DISTANCE_KM
+
+        # Else the minimum distance found is returned.
+        return min_distance_km
+
+
     def get_lat_lon_ranges(self):
         """
         Getting the lat long ranges from a input file, including the extra area on the edges.
         
         Opens the file, reads the lat/lon arrays and finds the min/max values.
+
                          LON
         +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
-        +-----+-----+-----+-----+-----+-----+ LAT
+        +-----+-----+-----+-----+-----+-----+
+        |  x  |  x  |  x  |  x  |  x  |  x  | LAT
+        +-----+-----+-----+-----+-----+-----+
         |  x  |  x  |  x  |  x  |  x  |  x  |
         +-----+-----+-----+-----+-----+-----+
+
         As the lat/lons are center values in the grid cells, the edges are added to the range.
         """
         lat_edge = self.nc.geospatial_lat_resolution/2.0
