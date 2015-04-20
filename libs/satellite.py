@@ -321,7 +321,7 @@ class Satellite(object):
 
         """
         MAX_DISTANCE_KM=500
-        NO_ICE_DISTANCE_KM=1000
+        NO_ICE_DISTANCE_KM=1000.0
 
         MIN_SEA_ICE_FRACTION=0.15
 
@@ -386,7 +386,7 @@ class Satellite(object):
 
         # If the minimum distance is greater than the allowed (500 km), 
         # return a default value.
-        if min_distance_km > MAX_DISTANCE_KM:
+        if min_distance_km >= MAX_DISTANCE_KM:
             LOG.debug("Returning default value: %s"%(NO_ICE_DISTANCE_KM))
             return NO_ICE_DISTANCE_KM
 
