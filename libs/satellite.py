@@ -138,7 +138,7 @@ class SatelliteDataPoint(object):
 class Satellite(object):
     def __init__(self, input_filename):
         self.input_filename = input_filename
-        self.nc = netCDF4.Dataset(self.input_filename)
+        self.nc = netCDF4.Dataset(self.input_filename, 'r')
         
     def __enter__(self):
         return self
@@ -264,7 +264,7 @@ class Satellite(object):
         """
         Gets the index of the closest float value.
         """
-        return abs((self.nc.variables[variable_name] - np.float32(value))).argmin()
+        return int(abs((self.nc.variables[variable_name] - np.float32(value))).argmin())
 
     def calculate_analysed_sst_smooth(self, lat, lon, analysed_sst_smooth_radius_km=25):
         """
@@ -281,18 +281,29 @@ class Satellite(object):
         +-----+-----+-----+-----+-----+-----+
 
         """
-        delta_lat = coordinatehelper.km_2_lats(analysed_sst_smooth_radius_km)
-        delta_lon = coordinatehelper.km_2_lons(analysed_sst_smooth_radius_km, lat)
+        # The smooth radius (km) in degrees.
+        # For latitudes.
+        smooth_radius_lat_deg = coordinatehelper.km_2_lats(analysed_sst_smooth_radius_km)
+
+        # For longitudes.
+        # Assuming that the 1 deg longitude is the same for all points around a specified point.
+        smooth_radius_lon_deg = coordinatehelper.km_2_lons(analysed_sst_smooth_radius_km, lat)
 
         # Mask everything outside latitude interval.
-        lat_mask = (self.nc.variables['lat'][:] >= lat-delta_lat) & (self.nc.variables['lat'][:] <= lat+delta_lat)
-        lon_mask = (self.nc.variables['lon'][:] > lon-delta_lon) & (self.nc.variables['lon'][:] < lon+delta_lon)
+        # Everything inside the interval is True.
+        lat_mask = (self.nc.variables['lat'][:] >= lat-smooth_radius_lat_deg) & (self.nc.variables['lat'][:] <= lat+smooth_radius_lat_deg)
+
+        # The same for the longitude interval.
+        # True inside interval.
+        lon_mask = (self.nc.variables['lon'][:] > lon-smooth_radius_lon_deg) & (self.nc.variables['lon'][:] < lon+smooth_radius_lon_deg)
         
         # Combine the lat mask with the lon mask.
+        # Reshape the two arrays into a matrix with the same dimmensions as the analysed_sst matrix.
         lat_lon_mask = np.reshape([i&j for i in lat_mask for j in lon_mask], (len(lat_mask), len(lon_mask)))
 
         # The values must be from water. That means that bit 1 must be set in the land/sea-mask.
         # The result is an array with 1s and 0s. It is converted to an array of bools.
+        # Again, if it is sea, the value is True.
         sea_mask = np.array((self.nc.variables['mask'][0] & 1), dtype=bool)
 
         # The resulting mask. Both True values from lat_lon and True values from the land/sea mask.
@@ -302,7 +313,12 @@ class Satellite(object):
         data = self.nc.variables['analysed_sst'][0]
 
         # Add the original mask.
+        # When the mask is on applied to the variable, True means that the
+        # variable is not to be used. It is "masked". The valid values should
+        # therefore be False. Hence: ~resulting_mask.
         data.mask = ~resulting_mask | data.mask
+
+        # Calculate the mean of the valid values.
         return data.mean()
 
 
@@ -320,31 +336,45 @@ class Satellite(object):
         +-----+-----+-----+-----+-----+-----+
 
         """
+        # The maximum allowed distance to ice. If the ice is found further out,
+        # the value should be set to the NO_ICE_DISTANCE_KM
         MAX_DISTANCE_KM=500
+
+        # Kind of a fill value for the distance. The distance is set to 1000 if no
+        # ice is found within MAX_DISTANCE_KM.
         NO_ICE_DISTANCE_KM=1000.0
 
+        # The ice sea fraction must be at least this.
         MIN_SEA_ICE_FRACTION=0.15
 
+        # Create a mask for all the points where the ice is greater than the sea ice fraction.
         LOG.debug("Icemask where sea ice fraction is > %f "%(MIN_SEA_ICE_FRACTION))
         sea_ice_fraction_mask = self.nc.variables['sea_ice_fraction'][0] > MIN_SEA_ICE_FRACTION
 
+        # Create a mask for all the values that are sea (first bit is set).
         LOG.debug("The sea mask: Where the first bit in the 'mask' variable (nc file) is set")
         sea_mask = np.array((self.nc.variables['mask'][0] & 1), dtype=bool)
 
+        # Combine the two. I.e. a mask where there is sea AND ice.
         LOG.debug("Combine sea mask and sea ice fraction mask into sea ice mask.")
         sea_ice_mask = sea_ice_fraction_mask & sea_mask
 
         # Creating a matrix with very large values.
         # This will be used to fill in the values distance values.
         distances_km = np.empty(sea_ice_mask.shape)
-        distances_km.fill(MAX_DISTANCE_KM)
+        distances_km.fill(NO_ICE_DISTANCE_KM)
         
+        # This is used if we want to output where the ice is found, but is not
+        # really needed elsewhere.
         if output_ice_point_to_log_info:
             # For book keeping.
-            min_value = 500
+            min_value = NO_ICE_DISTANCE_KM
             min_lat = None
             min_lon = None
 
+        # Loop through all the points that are both sea and ice,
+        # calculate the distance to our point,
+        # insert the value into the distances matrix.
         for lat_idx in np.arange(len(self.nc.variables['lat'])):
             if not sea_ice_mask[lat_idx].any():
                 # If there are no ice in the sea for the current sea mask row,
@@ -372,6 +402,7 @@ class Satellite(object):
                 # Calculate the resulting distance.
                 distances_km[lat_idx][lon_idx] = np.sqrt(x**2 + y**2)
 
+                # Only for book keeping, when we want to output where the point is.
                 if output_ice_point_to_log_info and distances_km[lat_idx][lon_idx] < min_value:
                     min_value = distances_km[lat_idx][lon_idx]
                     min_lat = latitude
@@ -411,14 +442,21 @@ class Satellite(object):
 
         As the lat/lons are center values in the grid cells, the edges are added to the range.
         """
+        # The edge for latitude.
         lat_edge = self.nc.geospatial_lat_resolution/2.0
+
+        # The minimum and maximum values from the file +/- the edges.
         lat_ranges = [min(self.nc.variables['lat']) - lat_edge,
                       max(self.nc.variables['lat']) + lat_edge]
 
+        # The edge for longitude.
         lon_edge = self.nc.geospatial_lon_resolution/2.0
+
+        # The minimum and maximum values from the file +/- the edges.
         lon_ranges = [min(self.nc.variables['lon']) - lon_edge,
                       max(self.nc.variables['lon']) + lon_edge]
 
+        # The ranges.
         return lat_ranges, lon_ranges 
 
     def get_variable_names(self):
@@ -426,7 +464,13 @@ class Satellite(object):
         Gets the variable names in the file. That means the variables that can be read from the file.
         """
         LOG.debug("Getting variable names from %s"%self.input_filename)
+
+        # The variables names from the file.
         variables = list(self.nc.variables)
+
+        # Calculated variable names.
         variables.append("analysed_sst_smooth")
         variables.append("dist2ice")
-        return {str(var) for var in variables}
+        
+        # Convert the variables to strings.
+        return set([str(var) for var in variables])

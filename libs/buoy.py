@@ -29,10 +29,10 @@ def get_buoy_names(data_dir=None):
     # E.g. arko.dat arko.dat_head.dat arko.datneu.dat arko.datneu_head.dat dars.dat dars.dat_head.dat
     # becomes arko, arko.datneu and dars.
     if os.path.isdir(data_dir):
-        return {os.path.splitext(filename)[0].lower() \
+        return set([os.path.splitext(filename)[0].lower() \
                     for filename in os.walk((os.path.abspath(os.path.join(data_dir)))).next()[2] \
                     if os.path.splitext(filename)[1].lower() == ".dat" \
-                    and "head" not in filename.lower()}
+                    and "head" not in filename.lower()])
 
     LOG.error("Missing data dir: '%s'"%(data_dir))
     raise BuoyException("Missing data dir: '%s'"%(data_dir))
@@ -78,7 +78,7 @@ class BuoyDataElement(object):
         # Prepare the header types. These are the ones from the
         # <buoy_short_name>.dat_head.dat file. Each distinct type
         # becomes a new dict in the self.__dict__.
-        for header_type in {header.type for header in self.headers}: # Distinct header type.
+        for header_type in set([header.type for header in self.headers]): # Distinct header type.
             self.__dict__[header_type] = {}
         LOG.debug("Dict after headers prepeared: %s"%(self.__dict__))
 
