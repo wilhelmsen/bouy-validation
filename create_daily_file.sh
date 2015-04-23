@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export PYTHONPATH=$PYTHONPATH:/usr/lib/pyshared/python2.7/:/usr/lib/python2.7/dist-packages/:/usr/share/pyshared:/
+
 # The minimum WT depths for the differnt buoys.
 # These values are found from buoy data header files.
 declare -A arr
