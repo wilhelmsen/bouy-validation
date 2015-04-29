@@ -22,7 +22,7 @@ arr[kiel]="0"
 cd /home/hw/dvl/copernicus/buoy-validation/
 
 # Loop through the last 7 days, starting with yesterday.(--start-days-back-in-time = 1)
-python print_last_dates.py ${1:-7} --start-days-back-in-time 1 | while read sat_date
+python print_last_dates.py ${1:-7} --start-days-back-in-time 0 | while read sat_date
 do
     # For each date, get the day before. These are used for the file name. The date format is therefore a little different.
     # The valid buoy data for midnight is 12 hours before and 12 hours after, which is why the 12 is appended to the dates.
